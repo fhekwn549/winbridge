@@ -81,13 +81,27 @@ FRDP_MAJOR=${FRDP_VER%%.*}
 [ "$FRDP_MAJOR" -ge "$FRDP_MIN_MAJOR" ] || die "FreeRDP $FRDP_BIN major=$FRDP_MAJOR found; need >= $FRDP_MIN_MAJOR"
 log_info "FreeRDP OK: $FRDP_BIN $FRDP_VER"
 
-log_info "Checking user groups..."
-user_groups=$(id -nG)
+log_info "Checking user groups (via /etc/group, authoritative)..."
+current_user=$(id -un)
 for grp in kvm libvirt; do
-    if ! printf ' %s ' "$user_groups" | grep -q " $grp "; then
-        die "user not in '$grp' group. Run: sudo usermod -aG $grp \$USER && re-login"
+    members=$(getent group "$grp" 2>/dev/null | cut -d: -f4)
+    if ! printf ',%s,' "$members" | grep -q ",$current_user,"; then
+        die "user '$current_user' not registered in '$grp' group. Run: sudo usermod -aG $grp \$USER"
     fi
 done
+
+# Warn (do not fail) if current shell session doesn't yet have the groups applied.
+shell_groups=$(id -nG)
+missing_from_shell=()
+for grp in kvm libvirt; do
+    if ! printf ' %s ' "$shell_groups" | grep -q " $grp "; then
+        missing_from_shell+=("$grp")
+    fi
+done
+if [ ${#missing_from_shell[@]} -gt 0 ]; then
+    log_warn "groups registered in /etc/group but NOT in current shell: ${missing_from_shell[*]}"
+    log_warn "  this is fine as long as you re-login or open a new terminal before running any scripts that rely on these groups"
+fi
 
 log_info "Checking libvirtd service..."
 systemctl is-active --quiet libvirtd || die "libvirtd not active. Run: sudo systemctl enable --now libvirtd"
