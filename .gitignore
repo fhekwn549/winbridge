@@ -1,0 +1,29 @@
+# Rust
+/target
+**/*.rs.bk
+
+# VM images and per-user runtime data (never commit binary artifacts)
+/images
+/data
+/archive
+*.qcow2
+*.iso
+*.vhd
+*.vhdx
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# Local environment overrides
+.env
+.env.local
+config.local.toml
+
+# Design/spec drafts kept local (per repo policy — commit only README/CONTRIBUTING .md)
+/docs/superpowers/
+
