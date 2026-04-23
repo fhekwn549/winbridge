@@ -48,11 +48,23 @@ check_artifact() {
     return 0
 }
 
+download_atomic() {
+    local dest=$1 url=$2 label=$3
+    log_info "Downloading $label..."
+    if curl -fL --retry 3 -C - -o "${dest}.part" "$url"; then
+        mv "${dest}.part" "$dest"
+    else
+        log_error "$label download failed; removing partial file"
+        rm -f "${dest}.part"
+        return 1
+    fi
+}
+
 mkdir -p "$WINBRIDGE_DOWNLOADS_DIR"
 
 if $CHECK_ONLY; then
     ok=true
-    check_artifact "$WIN11_ISO"   "Windows 11 ISO"    5000000000 || ok=false
+    check_artifact "$WIN11_ISO"   "Windows 11 ISO"    5500000000 || ok=false
     check_artifact "$VIRTIO_ISO"  "VirtIO drivers"     300000000 || ok=false
     check_artifact "$KAKAO_EXE"   "KakaoTalk"          50000000  || ok=false
     $ok || exit 1
@@ -61,21 +73,21 @@ fi
 
 # VirtIO drivers: stable URL from Red Hat
 if ! check_artifact "$VIRTIO_ISO" "VirtIO drivers" 300000000 2>/dev/null; then
-    log_info "Downloading VirtIO drivers..."
-    curl -fL --retry 3 -o "$VIRTIO_ISO" \
-        "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso"
+    download_atomic "$VIRTIO_ISO" \
+        "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso" \
+        "VirtIO drivers"
 fi
 
 # KakaoTalk: stable CDN URL
 if ! check_artifact "$KAKAO_EXE" "KakaoTalk" 50000000 2>/dev/null; then
-    log_info "Downloading KakaoTalk installer..."
-    curl -fL --retry 3 -o "$KAKAO_EXE" \
-        "https://app-pc.kakaocdn.net/talk/win32/KakaoTalk_Setup.exe"
+    download_atomic "$KAKAO_EXE" \
+        "https://app-pc.kakaocdn.net/talk/win32/KakaoTalk_Setup.exe" \
+        "KakaoTalk installer"
 fi
 
 # Windows 11 ISO: Microsoft rotates the URL. Try a known-good direct link; if it
 # fails, instruct the user to download manually.
-if ! check_artifact "$WIN11_ISO" "Windows 11 ISO" 5000000000 2>/dev/null; then
+if ! check_artifact "$WIN11_ISO" "Windows 11 ISO" 5500000000 2>/dev/null; then
     log_warn "Windows 11 ISO must be downloaded manually."
     log_warn "  1. Visit https://www.microsoft.com/en-us/evalcenter/evaluate-windows-11-enterprise"
     log_warn "  2. Fill out the form, pick 'ISO - Enterprise'"
