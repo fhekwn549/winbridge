@@ -13,7 +13,7 @@ Usage: $0
 check prerequisites — verify the host machine has everything needed to provision a Windows VM:
   - CPU virtualization (AMD-V or VT-x) available
   - /dev/kvm accessible by current user
-  - apt packages installed (qemu, libvirt, virtinst, freerdp3)
+  - apt packages installed (qemu, libvirt, virtinst, freerdp2/3)
   - virtiofsd binary present (either /usr/libexec or /usr/lib/qemu)
   - xfreerdp3 (>=3) or xfreerdp (>=2) in PATH
   - user in 'kvm' and 'libvirt' groups
