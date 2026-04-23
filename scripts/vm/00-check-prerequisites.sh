@@ -14,6 +14,7 @@ check prerequisites — verify the host machine has everything needed to provisi
   - CPU virtualization (AMD-V or VT-x) available
   - /dev/kvm accessible by current user
   - apt packages installed (qemu, libvirt, virtinst, freerdp3)
+  - virtiofsd binary present (either /usr/libexec or /usr/lib/qemu)
   - xfreerdp3 >= 3.0.0 in PATH
   - user in 'kvm' and 'libvirt' groups
   - libvirtd service active
@@ -39,7 +40,7 @@ fi
 log_info "Checking required packages..."
 REQUIRED_PKGS=(
     qemu-system-x86 qemu-utils libvirt-daemon-system libvirt-clients
-    virtinst bridge-utils cpu-checker virtiofsd xmlstarlet libxml2-utils jq curl
+    virtinst bridge-utils cpu-checker xmlstarlet libxml2-utils jq curl
 )
 MISSING=()
 for pkg in "${REQUIRED_PKGS[@]}"; do
@@ -48,6 +49,18 @@ done
 if [ ${#MISSING[@]} -gt 0 ]; then
     die "missing apt packages: ${MISSING[*]}. Install: sudo apt install ${MISSING[*]}"
 fi
+
+log_info "Checking virtiofsd binary..."
+VIRTIOFSD_CANDIDATES=(
+    /usr/libexec/virtiofsd           # Ubuntu 23.04+, Rust version
+    /usr/lib/qemu/virtiofsd          # Ubuntu 22.04 (bundled in qemu-system-common)
+)
+VIRTIOFSD_BIN=""
+for c in "${VIRTIOFSD_CANDIDATES[@]}"; do
+    if [ -x "$c" ]; then VIRTIOFSD_BIN="$c"; break; fi
+done
+[ -n "$VIRTIOFSD_BIN" ] || die "virtiofsd binary not found. On Ubuntu 22.04 it should be at /usr/lib/qemu/virtiofsd (inside qemu-system-common). On 23.04+ it's /usr/libexec/virtiofsd from the virtiofsd package. Install qemu-system-x86 or the virtiofsd package."
+log_info "virtiofsd found at $VIRTIOFSD_BIN"
 
 log_info "Checking FreeRDP 3.x..."
 if ! command -v xfreerdp3 >/dev/null 2>&1; then
