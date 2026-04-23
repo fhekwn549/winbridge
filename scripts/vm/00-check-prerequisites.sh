@@ -15,7 +15,7 @@ check prerequisites — verify the host machine has everything needed to provisi
   - /dev/kvm accessible by current user
   - apt packages installed (qemu, libvirt, virtinst, freerdp3)
   - virtiofsd binary present (either /usr/libexec or /usr/lib/qemu)
-  - xfreerdp3 >= 3.0.0 in PATH
+  - xfreerdp3 (>=3) or xfreerdp (>=2) in PATH
   - user in 'kvm' and 'libvirt' groups
   - libvirtd service active
   - 50+ GB free in \$HOME
@@ -62,14 +62,24 @@ done
 [ -n "$VIRTIOFSD_BIN" ] || die "virtiofsd binary not found. On Ubuntu 22.04 it should be at /usr/lib/qemu/virtiofsd (inside qemu-system-common). On 23.04+ it's /usr/libexec/virtiofsd from the virtiofsd package. Install qemu-system-x86 or the virtiofsd package."
 log_info "virtiofsd found at $VIRTIOFSD_BIN"
 
-log_info "Checking FreeRDP 3.x..."
-if ! command -v xfreerdp3 >/dev/null 2>&1; then
-    die "xfreerdp3 not found. Ubuntu 22.04 ships FreeRDP 2.x; add PPA ppa:remmina-ppa-team/remmina-next and install freerdp3-x11."
+log_info "Checking FreeRDP..."
+# Prefer xfreerdp3 (version 3+), accept xfreerdp (version 2+) as Ubuntu 22.04 fallback.
+FRDP_BIN=""
+FRDP_MIN_MAJOR=0
+if command -v xfreerdp3 >/dev/null 2>&1; then
+    FRDP_BIN=xfreerdp3
+    FRDP_MIN_MAJOR=3
+elif command -v xfreerdp >/dev/null 2>&1; then
+    FRDP_BIN=xfreerdp
+    FRDP_MIN_MAJOR=2
+else
+    die "neither xfreerdp3 nor xfreerdp found. Install freerdp2-x11 (default Ubuntu 22.04) or freerdp3-x11."
 fi
-FRDP_VER=$(xfreerdp3 --version 2>&1 | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
-[ -n "$FRDP_VER" ] || die "cannot parse FreeRDP version"
+FRDP_VER=$("$FRDP_BIN" --version 2>&1 | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+[ -n "$FRDP_VER" ] || die "cannot parse FreeRDP version from $FRDP_BIN"
 FRDP_MAJOR=${FRDP_VER%%.*}
-[ "$FRDP_MAJOR" -ge 3 ] || die "FreeRDP version $FRDP_VER found; need >= 3.0.0"
+[ "$FRDP_MAJOR" -ge "$FRDP_MIN_MAJOR" ] || die "FreeRDP $FRDP_BIN major=$FRDP_MAJOR found; need >= $FRDP_MIN_MAJOR"
+log_info "FreeRDP OK: $FRDP_BIN $FRDP_VER"
 
 log_info "Checking user groups..."
 user_groups=$(id -nG)
