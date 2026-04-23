@@ -14,9 +14,10 @@ check prerequisites — verify the host machine has everything needed to provisi
   - CPU virtualization (AMD-V or VT-x) available
   - /dev/kvm accessible by current user
   - apt packages installed (qemu, libvirt, virtinst, freerdp3)
+  - xfreerdp3 >= 3.0.0 in PATH
   - user in 'kvm' and 'libvirt' groups
+  - libvirtd service active
   - 50+ GB free in \$HOME
-  - required commands in PATH
 
 Exits non-zero on first missing requirement with a fix hint.
 EOF
@@ -38,7 +39,7 @@ fi
 log_info "Checking required packages..."
 REQUIRED_PKGS=(
     qemu-system-x86 qemu-utils libvirt-daemon-system libvirt-clients
-    virtinst bridge-utils cpu-checker virtiofsd xmlstarlet xmllint jq curl
+    virtinst bridge-utils cpu-checker virtiofsd xmlstarlet libxml2-utils jq curl
 )
 MISSING=()
 for pkg in "${REQUIRED_PKGS[@]}"; do
@@ -52,7 +53,7 @@ log_info "Checking FreeRDP 3.x..."
 if ! command -v xfreerdp3 >/dev/null 2>&1; then
     die "xfreerdp3 not found. Ubuntu 22.04 ships FreeRDP 2.x; add PPA ppa:remmina-ppa-team/remmina-next and install freerdp3-x11."
 fi
-FRDP_VER=$(xfreerdp3 --version 2>&1 | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+FRDP_VER=$(xfreerdp3 --version 2>&1 | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
 [ -n "$FRDP_VER" ] || die "cannot parse FreeRDP version"
 FRDP_MAJOR=${FRDP_VER%%.*}
 [ "$FRDP_MAJOR" -ge 3 ] || die "FreeRDP version $FRDP_VER found; need >= 3.0.0"
