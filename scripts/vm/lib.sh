@@ -2,6 +2,12 @@
 # winbridge VM provisioning shared helpers.
 # Sourced by every scripts/vm/NN-*.sh script.
 
+# Guard against double-sourcing. Sub-scripts may source lib.sh directly even
+# if the caller already did; without this guard the readonly declarations
+# below would fail on the second pass.
+[[ -n "${_WINBRIDGE_LIB_SOURCED:-}" ]] && return 0
+readonly _WINBRIDGE_LIB_SOURCED=1
+
 # Colors for terminals that support them.
 if [ -t 2 ]; then
     readonly _C_RED=$'\033[31m'
