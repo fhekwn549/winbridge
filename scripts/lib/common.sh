@@ -37,11 +37,20 @@ wait_for() {
     local cond="$1"
     local timeout="$2"
     local interval="$3"
+    # 숫자 형식 검증 (정수 또는 양의 소수). 실패 시 return 2 (timeout의 1과 구분).
+    if ! [[ "$timeout" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+        log_error "wait_for: timeout 형식 오류 (양의 숫자 필요): $timeout"
+        return 2
+    fi
+    if ! [[ "$interval" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+        log_error "wait_for: interval 형식 오류 (양의 숫자 필요): $interval"
+        return 2
+    fi
     local elapsed=0
     while ! eval "$cond" 2>/dev/null; do
         sleep "$interval"
-        elapsed=$(awk "BEGIN{print $elapsed+$interval}")
-        if awk "BEGIN{exit !($elapsed >= $timeout)}"; then
+        elapsed=$(awk -v e="$elapsed" -v i="$interval" 'BEGIN{print e+i}')
+        if awk -v e="$elapsed" -v t="$timeout" 'BEGIN{exit !(e >= t)}'; then
             log_error "wait_for 타임아웃: $cond (${timeout}s)"
             return 1
         fi

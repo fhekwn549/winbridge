@@ -45,4 +45,12 @@ echo 'host=${WB_HOSTNAME} port=${WB_PORT}' > "$TPL"
 out=$(WB_HOSTNAME=foo WB_PORT=42 render_template "$TPL")
 assert_eq "$out" "host=foo port=42" "render_template substitution"
 
+# wait_for: 잘못된 timeout 형식 거부 (return 2)
+rc=0; ( wait_for "test 1 = 1" "abc" 0.1 ) 2>/dev/null || rc=$?
+[ "$rc" -eq 2 ] || { echo "FAIL: wait_for should return 2 for non-numeric timeout, got $rc"; exit 1; }
+
+# wait_for: 잘못된 interval 형식 거부 (return 2)
+rc=0; ( wait_for "test 1 = 1" 1 "1)} END{print 1" ) 2>/dev/null || rc=$?
+[ "$rc" -eq 2 ] || { echo "FAIL: wait_for should return 2 for malicious interval, got $rc"; exit 1; }
+
 echo "PASS: test-common.sh"
