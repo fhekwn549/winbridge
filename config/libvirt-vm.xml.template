@@ -1,0 +1,115 @@
+<!--
+  config/libvirt-vm.xml.template
+  qemu:///system libvirt VM 정의 템플릿. install.sh가 envsubst로 렌더 후
+  'sudo virsh -c qemu:///system define'으로 등록.
+
+  Phase 0 결정 사항 반영:
+    - BIOS (legacy) 부팅. loader/nvram 라인 없음. UEFI는 별도 옵션.
+    - NIC = e1000e (virtio 드라이버 ISO 없이 Windows Server 2022 기본 동작).
+    - 디스크/ISO/OEM ISO 모두 home pool 가정 (위치 = $WINBRIDGE_HOME_POOL_DIR).
+    - SPICE display + spicevmc channel (firstboot.ps1에서 SPICE guest tools 설치 후
+      호스트↔VM 클립보드 공유 자동 동작).
+
+  변수:
+    WINBRIDGE_VM_NAME       VM 도메인 이름 (예: winbridge-srv2022)
+    WINBRIDGE_VM_RAM_KB     RAM (KiB 단위, 예: 4194304 = 4GB)
+    WINBRIDGE_VM_VCPU       vCPU 수 (예: 2)
+    WINBRIDGE_VM_DISK_PATH  qcow2 디스크 경로 ($HOME/.local/share/libvirt/images/<vm>.qcow2)
+    WINBRIDGE_VM_MAC        VM NIC MAC (정적 매핑용, 예: 52:54:00:7B:01:01)
+    WINBRIDGE_ISO_PATH      Server 2022 ISO 경로
+    WINBRIDGE_OEM_ISO_PATH  OEM ISO 경로 (autounattend + firstboot.ps1 수록)
+-->
+<domain type="kvm">
+  <name>${WINBRIDGE_VM_NAME}</name>
+  <memory unit="KiB">${WINBRIDGE_VM_RAM_KB}</memory>
+  <currentMemory unit="KiB">${WINBRIDGE_VM_RAM_KB}</currentMemory>
+  <vcpu placement="static">${WINBRIDGE_VM_VCPU}</vcpu>
+  <os>
+    <type arch="x86_64" machine="pc-q35-6.2">hvm</type>
+    <boot dev="hd"/>
+    <boot dev="cdrom"/>
+  </os>
+  <features>
+    <acpi/>
+    <apic/>
+    <hyperv mode="custom">
+      <relaxed state="on"/>
+      <vapic state="on"/>
+      <spinlocks state="on" retries="8191"/>
+    </hyperv>
+  </features>
+  <cpu mode="host-passthrough" check="none"/>
+  <clock offset="localtime">
+    <timer name="rtc" tickpolicy="catchup"/>
+    <timer name="pit" tickpolicy="delay"/>
+    <timer name="hpet" present="no"/>
+    <timer name="hypervclock" present="yes"/>
+  </clock>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>restart</on_crash>
+  <pm>
+    <suspend-to-mem enabled="no"/>
+    <suspend-to-disk enabled="no"/>
+  </pm>
+  <devices>
+    <emulator>/usr/bin/qemu-system-x86_64</emulator>
+
+    <!-- Primary qcow2 disk (home pool) -->
+    <disk type="file" device="disk">
+      <driver name="qemu" type="qcow2" cache="writeback" discard="unmap"/>
+      <source file="${WINBRIDGE_VM_DISK_PATH}"/>
+      <target dev="sda" bus="sata"/>
+    </disk>
+
+    <!-- Server 2022 install ISO -->
+    <disk type="file" device="cdrom">
+      <driver name="qemu" type="raw"/>
+      <source file="${WINBRIDGE_ISO_PATH}"/>
+      <target dev="sdb" bus="sata"/>
+      <readonly/>
+    </disk>
+
+    <!-- OEM ISO: autounattend.xml + firstboot.ps1 -->
+    <disk type="file" device="cdrom">
+      <driver name="qemu" type="raw"/>
+      <source file="${WINBRIDGE_OEM_ISO_PATH}"/>
+      <target dev="sdc" bus="sata"/>
+      <readonly/>
+    </disk>
+
+    <!-- Network: virbr0 default NAT, e1000e (Windows 기본 지원) -->
+    <interface type="network">
+      <source network="default"/>
+      <mac address="${WINBRIDGE_VM_MAC}"/>
+      <model type="e1000e"/>
+    </interface>
+
+    <!-- SPICE display for virt-manager 콘솔 + clipboard -->
+    <graphics type="spice" autoport="yes" listen="127.0.0.1">
+      <listen type="address" address="127.0.0.1"/>
+      <image compression="off"/>
+    </graphics>
+    <video>
+      <model type="qxl" ram="65536" vram="65536" vgamem="16384" heads="1" primary="yes"/>
+    </video>
+
+    <!-- SPICE clipboard channel: SPICE guest tools와 짝 -->
+    <channel type="spicevmc">
+      <target type="virtio" name="com.redhat.spice.0"/>
+    </channel>
+
+    <!-- Inputs -->
+    <input type="tablet" bus="usb"/>
+    <input type="mouse" bus="ps2"/>
+    <input type="keyboard" bus="ps2"/>
+
+    <!-- USB (SPICE redirect 가능성 대비, 미사용 시 무해) -->
+    <controller type="usb" model="qemu-xhci" ports="15"/>
+    <redirdev bus="usb" type="spicevmc"/>
+    <redirdev bus="usb" type="spicevmc"/>
+
+    <!-- Memory balloon -->
+    <memballoon model="virtio"/>
+  </devices>
+</domain>
