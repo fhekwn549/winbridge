@@ -27,3 +27,5 @@ config.local.toml
 # Design/spec drafts kept local (per repo policy — commit only README/CONTRIBUTING .md)
 /docs/superpowers/
 
+/build
+/docs/manual-checks.md
