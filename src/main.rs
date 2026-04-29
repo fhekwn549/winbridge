@@ -156,10 +156,37 @@ async fn run_tray() -> error::WinbridgeResult<()> {
                 let _ = action_tx.send(TrayAction::Shutdown);
             })
         },
-        on_quit: Arc::new(move || {
-            let _ = action_tx.send(TrayAction::Quit);
-        }),
+        on_quit: {
+            let action_tx = action_tx.clone();
+            Arc::new(move || {
+                let _ = action_tx.send(TrayAction::Quit);
+            })
+        },
     });
+
+    {
+        let manager = manager.clone();
+        let action_tx = action_tx.clone();
+        tokio::spawn(async move {
+            let mut sigterm =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    .expect("SIGTERM handler");
+            let mut sigint =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+                    .expect("SIGINT handler");
+
+            tokio::select! {
+                _ = sigterm.recv() => tracing::info!("SIGTERM received"),
+                _ = sigint.recv() => tracing::info!("SIGINT received"),
+            }
+
+            if let Err(err) = manager.graceful_shutdown(60).await {
+                tracing::error!("VM shutdown on signal failed: {err}");
+            }
+
+            let _ = action_tx.send(TrayAction::Quit);
+        });
+    }
 
     app.run();
     Ok(())
