@@ -301,29 +301,34 @@ impl RdpWindow {
 
         let (input_tx, input_rx) = tokio::sync::mpsc::unbounded_channel::<InputEvent>();
         let key_controller = gtk::EventControllerKey::new();
+        key_controller.set_propagation_phase(gtk::PropagationPhase::Capture);
         let click_gesture = gtk::GestureClick::new();
         let motion_controller = gtk::EventControllerMotion::new();
 
         {
             let tx = input_tx.clone();
             key_controller.connect_key_pressed(move |_controller, keyval, keycode, state| {
-                let _ = tx.send(InputEvent::KeyPress {
+                let event = InputEvent::KeyPress {
                     keyval: keyval.into_glib(),
                     keycode,
                     modifiers: state.bits(),
-                });
-                glib::Propagation::Proceed
+                };
+                tracing::debug!(?event, "GTK key press captured");
+                let _ = tx.send(event);
+                glib::Propagation::Stop
             });
         }
 
         {
             let tx = input_tx.clone();
             key_controller.connect_key_released(move |_controller, keyval, keycode, state| {
-                let _ = tx.send(InputEvent::KeyRelease {
+                let event = InputEvent::KeyRelease {
                     keyval: keyval.into_glib(),
                     keycode,
                     modifiers: state.bits(),
-                });
+                };
+                tracing::debug!(?event, "GTK key release captured");
+                let _ = tx.send(event);
             });
         }
 
@@ -383,11 +388,11 @@ impl RdpWindow {
             });
         }
 
-        drawing.add_controller(key_controller);
         drawing.add_controller(click_gesture);
         drawing.add_controller(motion_controller);
         drawing.set_can_focus(true);
         drawing.grab_focus();
+        win.add_controller(key_controller);
 
         win.connect_close_request(move |_| {
             (on_close)();
@@ -513,6 +518,9 @@ async fn run_rdp_loop(
                         if input_events.is_empty() {
                             tracing::trace!(?event, "RDP input event ignored");
                             continue;
+                        }
+                        if matches!(event, InputEvent::KeyPress { .. } | InputEvent::KeyRelease { .. }) {
+                            tracing::debug!(?event, "RDP key event sending");
                         }
 
                         let outputs = active_stage
@@ -776,6 +784,8 @@ fn ascii_key_to_scancode(ch: char) -> Option<u8> {
 
 fn extended_keyval_to_scancode(keyval: u32) -> Option<(u8, bool)> {
     let scan_code = match keyval {
+        0xff31 | 0xff32 | 0xff33 => 0x38, // Hangul / Hangul_Start / Hangul_End -> Right Alt
+        0xff34 => 0x1d, // Hangul_Hanja -> Right Ctrl
         0xff50 => 0x47, // Home
         0xff51 => 0x4b, // Left
         0xff52 => 0x48, // Up
@@ -863,6 +873,8 @@ mod tests {
         assert_eq!(keyval_to_scancode(u32::from('A')), Some((0x1e, false)));
         assert_eq!(keyval_to_scancode(u32::from('?')), Some((0x35, false)));
         assert_eq!(keyval_to_scancode(0xff51), Some((0x4b, true)));
+        assert_eq!(keyval_to_scancode(0xff31), Some((0x38, true)));
+        assert_eq!(keyval_to_scancode(0xff34), Some((0x1d, true)));
     }
 
     #[test]
