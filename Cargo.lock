@@ -1904,7 +1904,9 @@ checksum = "47c225751e8fbfaaaac5572a80e25d0a0921e9cf408c55509526161b5609157c"
 dependencies = [
  "ironrdp-connector",
  "ironrdp-core",
+ "ironrdp-graphics",
  "ironrdp-pdu",
+ "ironrdp-session",
 ]
 
 [[package]]
@@ -1946,6 +1948,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2db60a59716a84d09040d29c9e75e81545842510fccb0934c09b28e78b46680"
 dependencies = [
  "ironrdp-error",
+]
+
+[[package]]
+name = "ironrdp-displaycontrol"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6ea49ab58df70f3cfda6c2772c598603df02a7bfb0ddc84e563e25cd7c4e340"
+dependencies = [
+ "ironrdp-core",
+ "ironrdp-dvc",
+ "ironrdp-pdu",
+ "ironrdp-svc",
+ "tracing",
+]
+
+[[package]]
+name = "ironrdp-dvc"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bdf251c27aed3f73d4f25e86b1bee1c9d82145ec665de8317edbf2da7c42ebe8"
+dependencies = [
+ "ironrdp-core",
+ "ironrdp-pdu",
+ "ironrdp-svc",
+ "slab",
+ "tracing",
 ]
 
 [[package]]
@@ -1993,6 +2021,23 @@ dependencies = [
  "tap",
  "thiserror 2.0.18",
  "x509-cert",
+]
+
+[[package]]
+name = "ironrdp-session"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "997627ed3bdcd706fe44b8fdd958763b188336c4fc29b6443121867514069ac4"
+dependencies = [
+ "ironrdp-connector",
+ "ironrdp-core",
+ "ironrdp-displaycontrol",
+ "ironrdp-dvc",
+ "ironrdp-error",
+ "ironrdp-graphics",
+ "ironrdp-pdu",
+ "ironrdp-svc",
+ "tracing",
 ]
 
 [[package]]

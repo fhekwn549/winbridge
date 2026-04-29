@@ -43,7 +43,7 @@ glib = "0.18"
 ksni = "0.2"
 
 # RDP — 2026-04-29 기준 latest stable matching set (plan 버전 0.5/0.4에서 상향)
-ironrdp = { version = "0.14", features = ["connector"] }
+ironrdp = { version = "0.14", features = ["connector", "graphics", "session"] }
 ironrdp-tokio = { version = "0.8", features = ["reqwest-rustls-ring"] }
 ironrdp-pdu = "0.7"
 ironrdp-graphics = "0.7"

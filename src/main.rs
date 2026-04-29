@@ -188,7 +188,7 @@ async fn run_tray() -> error::WinbridgeResult<()> {
         });
     }
 
-    app.run();
+    app.run_with_args(&["winbridge"]);
     Ok(())
 }
 
@@ -223,7 +223,7 @@ async fn run_start() -> error::WinbridgeResult<()> {
             tracing::error!("RDP window open failed: {err}");
         }
     });
-    app.run();
+    app.run_with_args(&["winbridge"]);
 
     Ok(())
 }
