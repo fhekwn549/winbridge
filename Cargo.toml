@@ -25,5 +25,32 @@ default = []
 integration = []  # `cargo test --features integration` 으로만 실제 libvirt 통합 테스트 활성화
 
 [dependencies]
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-appender = "0.2"
+clap = { version = "4.5", features = ["derive", "env"] }
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+tokio = { version = "1.40", features = ["macros", "rt-multi-thread", "signal", "sync", "time", "io-util", "net"] }
+async-trait = "0.1"
+directories = "5.0"
+
+# GUI + tray — gtk4 0.7.x + glib 0.18.x: 시스템 GTK4 4.6.9 (Ubuntu 22.04) 호환
+gtk4 = { version = "0.7", features = ["v4_6"] }
+glib = "0.18"
+ksni = "0.2"
+
+# RDP — 2026-04-29 기준 latest stable matching set (plan 버전 0.5/0.4에서 상향)
+ironrdp = "0.14"
+ironrdp-tokio = "0.8"
+ironrdp-pdu = "0.7"
+ironrdp-graphics = "0.7"
+
+# libvirt
+virt = "0.4"
 
 [dev-dependencies]
+mockall = "0.13"
+tempfile = "3"
