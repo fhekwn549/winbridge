@@ -29,7 +29,10 @@ pub enum VmError {
     DomainNotFound { name: String },
 
     #[error("VM 상태 전환 시간 초과 ({operation}, {timeout_secs}s)")]
-    StateTimeout { operation: &'static str, timeout_secs: u64 },
+    StateTimeout {
+        operation: &'static str,
+        timeout_secs: u64,
+    },
 
     #[error("libvirt API 오류: {0}")]
     LibvirtApi(String),
@@ -73,7 +76,9 @@ mod tests {
 
     #[test]
     fn winbridge_error_wraps_vm_error_via_from() {
-        let inner = VmError::DomainNotFound { name: "winbridge-srv2022".into() };
+        let inner = VmError::DomainNotFound {
+            name: "winbridge-srv2022".into(),
+        };
         let outer: WinbridgeError = inner.into();
         let msg = format!("{}", outer);
         assert!(msg.contains("winbridge-srv2022"));

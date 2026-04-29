@@ -37,7 +37,10 @@ pub struct VmManager {
 
 impl VmManager {
     pub fn new(backend: Arc<dyn backend::LibvirtBackend>, vm_name: impl Into<String>) -> Self {
-        Self { backend, vm_name: vm_name.into() }
+        Self {
+            backend,
+            vm_name: vm_name.into(),
+        }
     }
 
     pub async fn state(&self) -> WinbridgeResult<VmState> {

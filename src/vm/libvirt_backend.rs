@@ -19,7 +19,9 @@ impl LibvirtBackendImpl {
     pub fn open(uri: &str) -> WinbridgeResult<Self> {
         let connection =
             Connect::open(Some(uri)).map_err(|e| VmError::LibvirtConnect(e.to_string()))?;
-        Ok(Self { connection: Mutex::new(connection) })
+        Ok(Self {
+            connection: Mutex::new(connection),
+        })
     }
 
     fn lookup(&self, name: &str) -> WinbridgeResult<Domain> {
@@ -27,8 +29,12 @@ impl LibvirtBackendImpl {
             .connection
             .lock()
             .expect("libvirt connection mutex poisoned");
-        Domain::lookup_by_name(&connection, name)
-            .map_err(|_| VmError::DomainNotFound { name: name.to_string() }.into())
+        Domain::lookup_by_name(&connection, name).map_err(|_| {
+            VmError::DomainNotFound {
+                name: name.to_string(),
+            }
+            .into()
+        })
     }
 
     fn classify_state(state: sys::virDomainState, has_managed_save: bool) -> VmState {

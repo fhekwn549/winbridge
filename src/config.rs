@@ -24,15 +24,17 @@ impl WinbridgeConfig {
         if let Ok(p) = std::env::var("WINBRIDGE_CREDENTIALS_FILE") {
             return PathBuf::from(p);
         }
-        let dirs = directories::BaseDirs::new()
-            .expect("BaseDirs::new must succeed on supported OS");
+        let dirs =
+            directories::BaseDirs::new().expect("BaseDirs::new must succeed on supported OS");
         dirs.config_dir().join("winbridge").join("credentials")
     }
 
     pub fn load_from(path: &Path) -> WinbridgeResult<Self> {
         let text = std::fs::read_to_string(path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                ConfigError::CredentialsMissing { path: path.display().to_string() }
+                ConfigError::CredentialsMissing {
+                    path: path.display().to_string(),
+                }
             } else {
                 ConfigError::ParseError {
                     path: path.display().to_string(),
@@ -60,8 +62,7 @@ impl WinbridgeConfig {
             admin_password,
             vm_name: std::env::var("WINBRIDGE_VM_NAME")
                 .unwrap_or_else(|_| Self::DEFAULT_VM_NAME.into()),
-            vm_ip: std::env::var("WINBRIDGE_VM_IP")
-                .unwrap_or_else(|_| Self::DEFAULT_VM_IP.into()),
+            vm_ip: std::env::var("WINBRIDGE_VM_IP").unwrap_or_else(|_| Self::DEFAULT_VM_IP.into()),
             libvirt_uri: std::env::var("WINBRIDGE_LIBVIRT_URI")
                 .unwrap_or_else(|_| Self::DEFAULT_LIBVIRT_URI.into()),
         })

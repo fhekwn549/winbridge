@@ -1,11 +1,6 @@
-mod cli;
-mod config;
-mod error;
-mod rdp;
-mod vm;
-
 use clap::Parser;
 use std::sync::Arc;
+use winbridge::{cli, config, error, vm};
 
 fn main() {
     let cli = cli::Cli::parse();
@@ -57,5 +52,8 @@ fn init_logging(verbose: bool) {
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
     };
 
-    fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
+    fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .init();
 }
