@@ -1,4 +1,5 @@
 use crate::error::{RdpError, WinbridgeResult};
+use glib::translate::IntoGlib;
 use gtk4 as gtk;
 use gtk4::prelude::*;
 use std::net::SocketAddr;
@@ -272,10 +273,73 @@ impl RdpWindow {
             });
         }
 
+        let (input_tx, input_rx) = tokio::sync::mpsc::unbounded_channel::<InputEvent>();
+        let key_controller = gtk::EventControllerKey::new();
+        let click_gesture = gtk::GestureClick::new();
+        let motion_controller = gtk::EventControllerMotion::new();
+
+        {
+            let tx = input_tx.clone();
+            key_controller.connect_key_pressed(move |_controller, keyval, keycode, state| {
+                let _ = tx.send(InputEvent::KeyPress {
+                    keyval: keyval.into_glib(),
+                    keycode,
+                    modifiers: state.bits(),
+                });
+                glib::Propagation::Proceed
+            });
+        }
+
+        {
+            let tx = input_tx.clone();
+            key_controller.connect_key_released(move |_controller, keyval, keycode, state| {
+                let _ = tx.send(InputEvent::KeyRelease {
+                    keyval: keyval.into_glib(),
+                    keycode,
+                    modifiers: state.bits(),
+                });
+            });
+        }
+
+        {
+            let tx = input_tx.clone();
+            click_gesture.connect_pressed(move |gesture, _n_press, x, y| {
+                let _ = tx.send(InputEvent::MousePress {
+                    button: gesture.current_button(),
+                    x,
+                    y,
+                });
+            });
+        }
+
+        {
+            let tx = input_tx.clone();
+            click_gesture.connect_released(move |gesture, _n_press, x, y| {
+                let _ = tx.send(InputEvent::MouseRelease {
+                    button: gesture.current_button(),
+                    x,
+                    y,
+                });
+            });
+        }
+
+        {
+            let tx = input_tx;
+            motion_controller.connect_motion(move |_controller, x, y| {
+                let _ = tx.send(InputEvent::MouseMove { x, y });
+            });
+        }
+
+        drawing.add_controller(key_controller);
+        drawing.add_controller(click_gesture);
+        drawing.add_controller(motion_controller);
+        drawing.set_can_focus(true);
+        drawing.grab_focus();
+
         let vm_ip = vm_ip.to_string();
         let password = password.to_string();
         tokio::spawn(async move {
-            if let Err(err) = run_rdp_loop(&vm_ip, &password, tx).await {
+            if let Err(err) = run_rdp_loop(&vm_ip, &password, tx, input_rx).await {
                 tracing::error!("RDP loop exited: {err}");
             }
         });
@@ -290,6 +354,34 @@ pub struct RdpFrame {
     pub width: u16,
     pub height: u16,
     pub bgra: Arc<Vec<u8>>,
+}
+
+#[derive(Debug)]
+pub enum InputEvent {
+    KeyPress {
+        keyval: u32,
+        keycode: u32,
+        modifiers: u32,
+    },
+    KeyRelease {
+        keyval: u32,
+        keycode: u32,
+        modifiers: u32,
+    },
+    MousePress {
+        button: u32,
+        x: f64,
+        y: f64,
+    },
+    MouseRelease {
+        button: u32,
+        x: f64,
+        y: f64,
+    },
+    MouseMove {
+        x: f64,
+        y: f64,
+    },
 }
 
 fn paint_frame_on_cairo(cr: &gtk::cairo::Context, frame: &RdpFrame, canvas_w: i32, canvas_h: i32) {
@@ -321,7 +413,8 @@ fn paint_frame_on_cairo(cr: &gtk::cairo::Context, frame: &RdpFrame, canvas_w: i3
 async fn run_rdp_loop(
     vm_ip: &str,
     password: &str,
-    tx: glib::Sender<RdpFrame>,
+    frame_tx: glib::Sender<RdpFrame>,
+    mut input_rx: tokio::sync::mpsc::UnboundedReceiver<InputEvent>,
 ) -> WinbridgeResult<()> {
     let username =
         std::env::var("WINBRIDGE_ADMIN_USER").unwrap_or_else(|_| "Administrator".to_string());
@@ -329,12 +422,17 @@ async fn run_rdp_loop(
     let result = probe.probe().await?;
     let bgra = placeholder_frame(result.width, result.height);
 
-    tx.send(RdpFrame {
-        width: result.width,
-        height: result.height,
-        bgra: Arc::new(bgra),
-    })
-    .map_err(|_| RdpError::Disconnected("GTK frame receiver closed".to_string()))?;
+    frame_tx
+        .send(RdpFrame {
+            width: result.width,
+            height: result.height,
+            bgra: Arc::new(bgra),
+        })
+        .map_err(|_| RdpError::Disconnected("GTK frame receiver closed".to_string()))?;
+
+    while let Some(event) = input_rx.recv().await {
+        tracing::trace!(?event, "RDP input event captured");
+    }
 
     Ok(())
 }
