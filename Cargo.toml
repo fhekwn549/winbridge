@@ -1,0 +1,29 @@
+[package]
+name = "winbridge"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Linux-native KakaoTalk manager backed by a Windows VM"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "winbridge"
+path = "src/main.rs"
+
+[profile.release]
+panic = "abort"
+strip = true
+lto = "thin"
+codegen-units = 1
+
+[profile.dev]
+panic = "abort"
+
+[features]
+default = []
+integration = []  # `cargo test --features integration` 으로만 실제 libvirt 통합 테스트 활성화
+
+[dependencies]
+
+[dev-dependencies]
