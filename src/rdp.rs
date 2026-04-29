@@ -1,4 +1,6 @@
 use crate::error::{RdpError, WinbridgeResult};
+use gtk4 as gtk;
+use gtk4::prelude::*;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -227,6 +229,128 @@ pub struct RdpProbeResult {
     pub width: u16,
     pub height: u16,
     pub bits_per_pixel: u8,
+}
+
+pub struct RdpWindow;
+
+impl RdpWindow {
+    pub fn open(app: &gtk::Application, vm_ip: &str, password: &str) -> WinbridgeResult<()> {
+        let win = gtk::ApplicationWindow::builder()
+            .application(app)
+            .title("KakaoTalk")
+            .default_width(1280)
+            .default_height(720)
+            .build();
+
+        let drawing = gtk::DrawingArea::new();
+        drawing.set_hexpand(true);
+        drawing.set_vexpand(true);
+        win.set_child(Some(&drawing));
+
+        let (tx, rx) = glib::MainContext::channel::<RdpFrame>(glib::Priority::default());
+        let latest_frame: std::rc::Rc<std::cell::RefCell<Option<RdpFrame>>> =
+            std::rc::Rc::new(std::cell::RefCell::new(None));
+
+        {
+            let latest_frame = latest_frame.clone();
+            let drawing_weak = drawing.downgrade();
+            rx.attach(None, move |frame| {
+                *latest_frame.borrow_mut() = Some(frame);
+                if let Some(drawing) = drawing_weak.upgrade() {
+                    drawing.queue_draw();
+                }
+                glib::ControlFlow::Continue
+            });
+        }
+
+        {
+            let latest_frame = latest_frame.clone();
+            drawing.set_draw_func(move |_drawing, cr, width, height| {
+                if let Some(frame) = latest_frame.borrow().as_ref() {
+                    paint_frame_on_cairo(cr, frame, width, height);
+                }
+            });
+        }
+
+        let vm_ip = vm_ip.to_string();
+        let password = password.to_string();
+        tokio::spawn(async move {
+            if let Err(err) = run_rdp_loop(&vm_ip, &password, tx).await {
+                tracing::error!("RDP loop exited: {err}");
+            }
+        });
+
+        win.present();
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+pub struct RdpFrame {
+    pub width: u16,
+    pub height: u16,
+    pub bgra: Arc<Vec<u8>>,
+}
+
+fn paint_frame_on_cairo(cr: &gtk::cairo::Context, frame: &RdpFrame, canvas_w: i32, canvas_h: i32) {
+    let stride = i32::from(frame.width) * 4;
+    let Ok(surface) = gtk::cairo::ImageSurface::create_for_data(
+        (*frame.bgra).clone(),
+        gtk::cairo::Format::ARgb32,
+        i32::from(frame.width),
+        i32::from(frame.height),
+        stride,
+    ) else {
+        return;
+    };
+
+    let scale_x = f64::from(canvas_w) / f64::from(frame.width);
+    let scale_y = f64::from(canvas_h) / f64::from(frame.height);
+    let scale = scale_x.min(scale_y).max(0.01);
+    let offset_x = (f64::from(canvas_w) - f64::from(frame.width) * scale) / 2.0;
+    let offset_y = (f64::from(canvas_h) - f64::from(frame.height) * scale) / 2.0;
+
+    let _ = cr.save();
+    cr.translate(offset_x, offset_y);
+    cr.scale(scale, scale);
+    let _ = cr.set_source_surface(&surface, 0.0, 0.0);
+    let _ = cr.paint();
+    let _ = cr.restore();
+}
+
+async fn run_rdp_loop(
+    vm_ip: &str,
+    password: &str,
+    tx: glib::Sender<RdpFrame>,
+) -> WinbridgeResult<()> {
+    let username =
+        std::env::var("WINBRIDGE_ADMIN_USER").unwrap_or_else(|_| "Administrator".to_string());
+    let probe = RdpHeadlessProbe::new(vm_ip, 3389, &username, password)?;
+    let result = probe.probe().await?;
+    let bgra = placeholder_frame(result.width, result.height);
+
+    tx.send(RdpFrame {
+        width: result.width,
+        height: result.height,
+        bgra: Arc::new(bgra),
+    })
+    .map_err(|_| RdpError::Disconnected("GTK frame receiver closed".to_string()))?;
+
+    Ok(())
+}
+
+fn placeholder_frame(width: u16, height: u16) -> Vec<u8> {
+    let mut bgra = vec![0; usize::from(width) * usize::from(height) * 4];
+    for y in 0..height {
+        for x in 0..width {
+            let idx = (usize::from(y) * usize::from(width) + usize::from(x)) * 4;
+            bgra[idx] = 0x30;
+            bgra[idx + 1] = 0x2a + ((u32::from(y) * 40 / u32::from(height.max(1))) as u8);
+            bgra[idx + 2] = 0x24 + ((u32::from(x) * 40 / u32::from(width.max(1))) as u8);
+            bgra[idx + 3] = 0xff;
+        }
+    }
+    bgra
 }
 
 #[cfg(test)]

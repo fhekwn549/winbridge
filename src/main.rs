@@ -1,6 +1,7 @@
 use clap::Parser;
+use gtk4::prelude::*;
 use std::sync::Arc;
-use winbridge::{cli, config, error, vm};
+use winbridge::{cli, config, error, rdp, vm};
 
 fn main() {
     let cli = cli::Cli::parse();
@@ -24,7 +25,10 @@ fn main() {
                 }
             }
             Some(cli::Command::Start) => {
-                println!("start placeholder - implemented in Phase 5 integration");
+                if let Err(err) = run_start().await {
+                    eprintln!("start 실패: {err}");
+                    std::process::exit(1);
+                }
             }
             Some(cli::Command::Stop { shutdown }) => {
                 println!("stop placeholder (shutdown={shutdown}) - implemented in Phase 5");
@@ -40,6 +44,30 @@ async fn run_status() -> error::WinbridgeResult<()> {
     let state = manager.state().await?;
 
     println!("VM '{}' 상태: {:?}", cfg.vm_name, state);
+    Ok(())
+}
+
+async fn run_start() -> error::WinbridgeResult<()> {
+    let cfg = config::WinbridgeConfig::load()?;
+    let backend = vm::libvirt_backend::LibvirtBackendImpl::open(&cfg.libvirt_uri)?;
+    let manager = vm::VmManager::new(Arc::new(backend), cfg.vm_name.clone());
+    manager.ensure_active().await?;
+
+    let app = gtk4::Application::builder()
+        .application_id("dev.winbridge.Winbridge")
+        .build();
+    let handle = tokio::runtime::Handle::current();
+    let vm_ip = cfg.vm_ip.clone();
+    let password = cfg.admin_password.clone();
+
+    app.connect_activate(move |app| {
+        let _guard = handle.enter();
+        if let Err(err) = rdp::RdpWindow::open(app, &vm_ip, &password) {
+            tracing::error!("RDP window open failed: {err}");
+        }
+    });
+    app.run();
+
     Ok(())
 }
 
