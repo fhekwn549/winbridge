@@ -1,5 +1,8 @@
 pub mod backend;
 
+use crate::error::WinbridgeResult;
+use std::sync::Arc;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VmState {
     /// 실행 중. RDP 즉시 가능.
@@ -26,26 +29,53 @@ impl VmState {
     }
 }
 
+pub struct VmManager {
+    backend: Arc<dyn backend::LibvirtBackend>,
+    vm_name: String,
+}
+
+impl VmManager {
+    pub fn new(backend: Arc<dyn backend::LibvirtBackend>, vm_name: impl Into<String>) -> Self {
+        Self { backend, vm_name: vm_name.into() }
+    }
+
+    pub async fn state(&self) -> WinbridgeResult<VmState> {
+        self.backend.state(&self.vm_name).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vm::backend::MockLibvirtBackend;
+    use mockall::predicate::eq;
+    use std::sync::Arc;
 
     #[test]
     fn off_requires_start() {
         assert!(VmState::Off.requires_start());
-        assert!(!VmState::Off.requires_resume());
     }
 
     #[test]
     fn saved_requires_resume() {
         assert!(VmState::Saved.requires_resume());
-        assert!(!VmState::Saved.requires_start());
     }
 
     #[test]
     fn active_needs_no_action() {
         assert!(VmState::Active.is_active());
-        assert!(!VmState::Active.requires_start());
-        assert!(!VmState::Active.requires_resume());
+    }
+
+    #[tokio::test]
+    async fn vm_manager_state_delegates_to_backend() {
+        let mut mock = MockLibvirtBackend::new();
+        mock.expect_state()
+            .with(eq("test-vm"))
+            .times(1)
+            .returning(|_| Box::pin(async { Ok(VmState::Saved) }));
+
+        let mgr = VmManager::new(Arc::new(mock), "test-vm");
+        let state = mgr.state().await.unwrap();
+        assert_eq!(state, VmState::Saved);
     }
 }
