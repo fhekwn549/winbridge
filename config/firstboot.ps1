@@ -1,10 +1,9 @@
 # config/firstboot.ps1
 # Windows Server 2022 첫 부팅 시 OEM 드라이브(E:\)에서 자동 실행.
-# Phase 0 결정에 따라 B-2 폴백 모드 단일 흐름:
+# Phase 0 결정에 따라 B-2 폴백 모드 단일 흐름 (P2A: 카톡 실행 가능성 POC):
 #   RDP 활성화 → 카톡 설치 → explorer 셸 유지 + 카톡 자동 시작 → Server Manager 차단
 #   → 작업표시줄 자동 숨김 + 데스크톱 아이콘 숨김 → 재부팅
-# explorer를 셸로 두는 이유: ctfmon/IME 핫키 등록이 explorer 셸 컨텍스트 의존.
-# 이전 'Shell=KakaoTalk' 설계는 한글 IME 핫키가 죽어 입력 불가 → 폐기.
+# 한국어 IME 자동 등록은 P2A 범위 밖 (xfreerdp v2.x RDP 협상 segfault → P2B 이관).
 # WINBRIDGE_MODE 분기 없음, fallback-apply.ps1 별도 파일 없음.
 # autounattend.xml의 FirstLogonCommands가 1회 호출.
 
@@ -116,20 +115,14 @@ try {
     Log "[WARN] Server Manager 차단 일부 실패: $($_.Exception.Message)"
 }
 
-# Step 8: 한국어 IME 추가 + 디폴트 입력기 한국어로
-# (autounattend에 InputLocale=0412 두면 xfreerdp v2.9 RDP 협상에서 segfault 재현됨 2026-04-29.
-#  RDP 협상 시점은 영문 keymap만 노출, OS 부팅 후 PowerShell로 한국어 IME만 추가해 우회.)
-try {
-    $list = New-WinUserLanguageList -Language 'en-US'
-    $list.Add('ko-KR')
-    Set-WinUserLanguageList -LanguageList $list -Force
-    Set-WinDefaultInputMethodOverride -InputTip "0412:{A028AE76-01B1-46C2-99C4-ACD9858AE02F}{B5FE1F02-D5F2-4445-9C03-C568F23C99A1}"
-    Log "[OK] 한국어 IME 추가 + 디폴트 입력 한국어로"
-} catch {
-    Log "[WARN] 한국어 IME 추가 실패: $($_.Exception.Message)"
-}
+# 한국어 IME 자동 등록은 P2A 범위 밖 (P2B 또는 Rust 구현 단계로 이관).
+#   사유: 게스트 OS 측 한국어 IME 활성 → xfreerdp v2.x RDP 채널 협상에서 segfault.
+#   xfreerdp v3은 Ubuntu 22.04 패키지 부재 (24.04+), source build 비용 큼.
+#   P2A는 카톡 자동 설치/실행 가능성 검증(POC)이므로 한국어 입력은 다음 우회로 충당:
+#     호스트(Linux)에서 한글 입력 → 복사 → RDP 카톡 채팅창에 Ctrl+V (RDP 클립보드 자동).
+#   본격 한국어 IME 자동화는 P2B에서 SPICE-vdagent 단독 / NoMachine / RustDesk 등 재검토.
 
-# Step 9: 데스크톱 아이콘 숨김 + 작업표시줄 자동 숨김
+# Step 8: 데스크톱 아이콘 숨김 + 작업표시줄 자동 숨김
 # StuckRects3 키는 explorer가 작업표시줄 처음 그릴 때 lazy 생성. firstboot.ps1 시점엔 부재라
 # 즉시 시도 + RunOnce 폴백 등록으로 다음 부팅에서 보장.
 try {
@@ -169,7 +162,7 @@ Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
     Log "[WARN] 데스크톱/작업표시줄 숨김 일부 실패: $($_.Exception.Message)"
 }
 
-# Step 10: status SUCCESS + 재부팅 예약
+# Step 9: status SUCCESS + 재부팅 예약
 # (SPICE guest tools 설치는 VirtIO PnP 미서명 컨펌으로 자동화 끊김 → P2B로 이관)
 'SUCCESS' | Out-File -FilePath $StatusPath -Encoding ascii -NoNewline
 Log "=== firstboot.ps1 SUCCESS, 30초 후 재부팅 ==="
