@@ -28,10 +28,9 @@ USAGE
 
 [ "${1:-}" = "--help" ] && { usage; exit 0; }
 
-[ -z "$WINBRIDGE_ISO_URL" ]    && { log_error "WINBRIDGE_ISO_URL 미설정"; exit 1; }
+# sha256은 항상 필수 (검증용). URL은 다운로드가 필요할 때만 필수.
 [ -z "$WINBRIDGE_ISO_SHA256" ] && { log_error "WINBRIDGE_ISO_SHA256 미설정"; exit 1; }
 
-require_cmd curl "sudo apt install -y curl"
 require_cmd sha256sum "coreutils 패키지 (대부분 기본 설치)"
 
 mkdir -p "$WINBRIDGE_SENTINEL_DIR" "$(dirname "$WINBRIDGE_ISO_DEST")"
@@ -50,6 +49,21 @@ if [ -f "$SENTINEL" ] && verify_sha256; then
     log_info "ISO 이미 존재 + sha256 일치, skip ($WINBRIDGE_ISO_DEST)"
     exit 0
 fi
+
+# 사용자가 직접 다운로드해 둔 경우 등 sentinel은 없지만 ISO+sha256 일치 → sentinel 생성 후 통과
+if [ ! -f "$SENTINEL" ] && verify_sha256; then
+    log_info "ISO 존재 + sha256 일치 (sentinel 부재). sentinel 생성 후 skip ($WINBRIDGE_ISO_DEST)"
+    touch "$SENTINEL"
+    exit 0
+fi
+
+# 여기 도달하면 다운로드가 필요 → URL 필수
+[ -z "$WINBRIDGE_ISO_URL" ] && {
+    log_error "WINBRIDGE_ISO_URL 미설정 (다운로드 필요한 상태)"
+    log_error "  WINBRIDGE_ISO_DEST=$WINBRIDGE_ISO_DEST 에 ISO가 없거나 sha256 불일치"
+    exit 1
+}
+require_cmd curl "sudo apt install -y curl"
 
 if [ -f "$SENTINEL" ]; then
     log_warn "sentinel은 있으나 sha256 불일치 또는 파일 부재 → 재다운로드"

@@ -116,9 +116,11 @@ if [ $DRY_RUN -eq 0 ]; then
     else
         sudo tee -a "$APPARMOR_LOCAL" >/dev/null <<EOF
 
+# winbridge:BEGIN
 # winbridge: home의 libvirt 디스크/ISO 접근 허용
 "$HOME/.local/share/libvirt/images/**" rwk,
 "$HOME/Downloads/*.iso" rk,
+# winbridge:END
 EOF
         log_info "  AppArmor abstractions에 winbridge path 추가"
         sudo systemctl reload apparmor 2>/dev/null || sudo service apparmor reload || \

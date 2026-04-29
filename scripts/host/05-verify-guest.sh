@@ -48,11 +48,19 @@ fi
 log_info "  OK"
 
 # 2. RDP 세션 생성 시도 (5초 띄우고 kill)
+# 비밀번호는 /p: 대신 stdin으로 전달 (ps/proc 노출 회피)
 log_info "[2/2] RDP 세션 5초 시도..."
 LOG=/tmp/winbridge-verify.log
-"${RDP[@]}" /v:"$WINBRIDGE_VM_IP:3389" \
-    /u:"$WINBRIDGE_VM_USER" /p:"$WINBRIDGE_ADMIN_PASSWORD" \
-    /cert:ignore /dynamic-resolution \
+if [[ "${RDP[0]}" == xfreerdp3 ]]; then
+    RDP_RES_OPT=(/dynamic-resolution)
+else
+    RDP_RES_OPT=(/size:1280x720)
+fi
+# /kbd:0x00000409 = 클라이언트 영문 keymap 강제. 서버측 한국어 IME 활성 시
+#   xfreerdp v2.x가 RDP 협상 중 segfault하는 케이스를 회피.
+printf '%s\n' "$WINBRIDGE_ADMIN_PASSWORD" | "${RDP[@]}" /v:"$WINBRIDGE_VM_IP:3389" \
+    /u:"$WINBRIDGE_VM_USER" /from-stdin \
+    /cert:ignore /kbd:0x00000409 "${RDP_RES_OPT[@]}" \
     > "$LOG" 2>&1 &
 RDP_PID=$!
 

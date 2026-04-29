@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# DEPRECATED (P1A 레거시): scripts/vm/NN-*.sh가 공유하는 helpers.
+# P2A 채택 흐름은 scripts/host/ 하위에서 scripts/lib/common.sh를 사용한다.
+# 신규 작업은 scripts/lib/common.sh 사용.
 # winbridge VM provisioning shared helpers.
 # Sourced by every scripts/vm/NN-*.sh script.
 

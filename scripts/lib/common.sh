@@ -58,12 +58,16 @@ wait_for() {
 }
 
 # render_template <path>
-# stdin 환경변수로 ${VAR} 치환된 결과를 stdout으로 출력. envsubst 의존.
+# 환경변수 ${WINBRIDGE_*}만 치환된 결과를 stdout으로 출력. envsubst 의존.
+# 주의: 템플릿에 PowerShell/cmd 코드가 들어있을 수 있어 $_, $p 등 비-WINBRIDGE 변수가
+# 같이 치환되면 안 됨. 따라서 WINBRIDGE_* allowlist만 envsubst에 전달한다.
 render_template() {
     local tpl="$1"
     if ! command -v envsubst >/dev/null 2>&1; then
         log_error "envsubst 부재. 'sudo apt install -y gettext-base'로 설치 필요"
         return 1
     fi
-    envsubst < "$tpl"
+    local vars
+    vars=$(env | awk -F= '/^WINBRIDGE_/{print "${" $1 "}"}' | tr '\n' ' ')
+    envsubst "$vars" < "$tpl"
 }

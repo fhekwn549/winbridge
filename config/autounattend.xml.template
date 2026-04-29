@@ -9,9 +9,11 @@
 
   Phase 0 결정 사항 반영:
     - BIOS (legacy) 부팅. UEFI는 별도 옵션 (현재 미지원).
-    - en-US UI + ko-KR Locale (사용자가 한국어 IME는 수동 추가, P2B 자동화).
+    - en-US UI + ko-KR Locale (한국어 IME는 firstboot.ps1에서 PowerShell로 추가).
+    - autounattend의 InputLocale을 한국어로 두면 xfreerdp v2.9 RDP 협상에서 segfault 발생 (검증됨).
     - AutoLogon 활성화 (RDP 즉시 가능).
-    - FirstLogonCommand → E:\firstboot.ps1 (OEM 드라이브의 firstboot 자동 실행).
+    - FirstLogonCommand → 모든 드라이브를 스캔해 firstboot.ps1을 찾아 실행
+      (OEM ISO가 항상 E:로 잡히지 않으므로 드라이브 문자 가정 제거).
 -->
 <unattend xmlns="urn:schemas-microsoft-com:unattend">
 
@@ -121,8 +123,8 @@
       <FirstLogonCommands>
         <SynchronousCommand wcm:action="add">
           <Order>1</Order>
-          <Description>Run firstboot.ps1 from OEM drive</Description>
-          <CommandLine>powershell.exe -ExecutionPolicy Bypass -NoProfile -File E:\firstboot.ps1</CommandLine>
+          <Description>Locate firstboot.ps1 on any drive and run it</Description>
+          <CommandLine>powershell.exe -ExecutionPolicy Bypass -NoProfile -Command "$p = (Get-PSDrive -PSProvider FileSystem | ForEach-Object { Join-Path $_.Root 'firstboot.ps1' } | Where-Object { Test-Path $_ } | Select-Object -First 1); if ($p) { . $p } else { throw 'firstboot.ps1 not found on any drive' }"</CommandLine>
         </SynchronousCommand>
       </FirstLogonCommands>
       <TimeZone>${WINBRIDGE_TIMEZONE}</TimeZone>

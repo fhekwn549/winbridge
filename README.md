@@ -4,15 +4,15 @@
 >
 > 웹으로 해결되지 않는 Windows 전용 앱을 리눅스에서 네이티브처럼.
 
-**현재 상태: 설계 완료, 구현 전 (Pre-implementation).** 프로젝트명은 가제입니다.
+**현재 상태: P2A 자동화 코드 작성 완료, end-to-end 설치 검증 전.** 프로젝트명은 가제입니다.
 
 ---
 
 ## What
 
-A Rust daemon that orchestrates a headless Windows VM (KVM) and projects individual app windows onto the Linux desktop via FreeRDP RemoteApp — with proper system tray, native notifications, global hotkeys, and host-side data persistence.
+A bash-driven installer that provisions a headless **Windows Server 2022 Evaluation** VM under libvirt/KVM and launches **KakaoTalk** as the only visible window via FreeRDP. Windows Explorer/taskbar are suppressed (B-2 폴백 shell), so what appears on the Linux desktop is a single KakaoTalk window.
 
-The first supported application is **KakaoTalk**. Additional apps are added via TOML profile files, not code changes.
+The MVP supports **KakaoTalk only**. Multi-app TOML profiles are out of P2A scope.
 
 ## Motivation
 
@@ -25,109 +25,110 @@ Wine is a remarkable translation layer, but it carries structural limits:
 - Every KakaoTalk update can break Wine compatibility
 - Version-to-version regressions are frequent
 
-winbridge sidesteps the compatibility question entirely by running the actual Windows binary on a real Windows kernel. The cost is VM resources; the win is that your app works exactly as it does on Windows — now and in the future, regardless of how the app evolves.
+winbridge sidesteps the compatibility question entirely by running the actual Windows binary on a real Windows kernel. The cost is VM resources; the win is that your app works exactly as it does on Windows.
 
 ### Why not an unofficial protocol client
 
 Libraries that reverse-engineer KakaoTalk's LOCO protocol (e.g. `node-kakao`) have been **unmaintained since 2022**, and using them carries a real account-ban risk because Kakao actively detects non-official clients. winbridge uses the official Windows KakaoTalk binary over RDP — from the server's perspective, the connection is indistinguishable from a Windows user.
 
-### Why this positioning (what winbridge does *not* try to be)
+### Why this positioning
 
-winbridge focuses narrowly on a category we call **"native-exe-only apps without a viable web alternative"**. It is deliberately **not** a general-purpose Windows compatibility layer.
+winbridge focuses narrowly on **"native-exe-only apps without a viable web alternative"** — currently KakaoTalk only. Explicit non-goals: 3D games, apps with good web/Linux alternatives, system-level utilities, protocol-level reimplementation.
 
-Explicit non-goals:
+## How it works (P2A — current implementation)
 
-- **3D games** — RemoteApp streaming is 2D-centric. Games need Looking Glass or passthrough-class tech, which is out of scope.
-- **Apps that already have good web or Linux alternatives** — MS Office, Notion, Slack, most productivity tools. Use the web/Linux version; winbridge adds nothing there.
-- **System-level utilities** — disk managers, driver installers, firewall tools. These need host hardware access that RemoteApp cannot provide.
-- **Protocol-level reimplementation** — no unofficial API use, no scraping, no ToS circumvention.
+### 채택 경로: B-2 폴백
 
-## How it works
+Phase 0 검토에서 RemoteApp 단독 윈도우 surfacing이 게스트 측 제약(Server 2022 RDS 라이선스/세션 모델 등)으로 실패함을 확인했다. 따라서 P2A는 **B-2 폴백 단일 default**로 채택한다.
 
-### Key scenarios
+- 게스트 Windows의 explorer shell을 비활성화하고, 로그온 시 KakaoTalk만 자동 실행
+- Linux 호스트는 일반 RDP 세션을 FreeRDP로 띄움
+- 사용자가 보는 화면은 KakaoTalk 단독 윈도우 (desktop/taskbar 없음)
 
-**Launch (cold start):** You press `Super+K`. The daemon sees the VM is off, boots it headlessly (≈15s), spawns `xfreerdp3` in RemoteApp mode pointing at `KakaoTalk.exe`, and a single KakaoTalk window appears on your Linux desktop — indistinguishable from a native app window.
+### 설치 흐름 (`./install.sh`)
 
-**Launch (warm start):** The VM is already running from a previous session. The same keypress takes ≈2s: no boot, just a new RemoteApp session inside the existing RDP connection.
+1. `~/.config/winbridge/credentials`에 random Administrator 비밀번호 생성/로드
+2. `scripts/host/00-check-prerequisites.sh` — KVM/libvirt/FreeRDP/virt-install 점검
+3. `scripts/host/01-download-iso.sh` — Server 2022 Eval ISO 다운로드 + sha256 검증 (이미 있고 일치하면 skip)
+4. `scripts/host/02-setup-libvirt.sh` — `qemu:///system` virbr0 정적 DHCP 매핑, home storage pool, AppArmor (멱등)
+5. `scripts/host/03-create-vm.sh` — `autounattend.xml` + `firstboot.ps1`을 담은 OEM ISO 생성, qcow2 디스크 생성, libvirt define + start
+6. `scripts/host/04-wait-for-install.sh` — 무인 설치/재부팅 안정화 (~30~50분), RDP 응답 대기
+7. `scripts/host/05-verify-guest.sh` — RDP 인증/세션 가능 확인
+8. FreeRDP 창을 띄워 카톡 단독 표시 확인 + 폰 페어링
 
-**Incoming message:** FreeRDP reports that the window title changed to `"(3) 카카오톡"`. The daemon parses the digit, updates the tray icon with a red badge `3`. In Phase 2, a small helper inside the VM also forwards Windows Toast notifications over virtiofs, which the daemon re-emits as native D-Bus notifications — so your GNOME notification stack sees `홍길동: 안녕하세요` as a first-class notification.
-
-**Idle suspend:** When the last window closes, a 5-minute idle timer starts. If no new launch happens, the VM is suspended to disk. Next launch resumes from suspend in ≈2s. You get "always available" UX without "always consuming RAM" cost.
+제거: `./uninstall.sh` (각 단계 y/N 컨펌, `-y`로 자동 응답).
 
 ### Architecture overview
 
-Three processes cooperate as a small distributed system on one machine:
-
 ```
-┌─ Linux host (Ubuntu 22.04, X11, GNOME) ─────────────────────────┐
+┌─ Linux host (Ubuntu 22.04) ─────────────────────────────────────┐
 │                                                                 │
-│  winbridge (Rust daemon)                                        │
-│   ├─ VM control     ──libvirt──▶ libvirtd / QEMU ──KVM──▶ [VM]  │
-│   ├─ Window display ──spawn────▶ xfreerdp3 ───RDP───────▶ [VM]  │
-│   ├─ Notifier       ──D-Bus───▶ GNOME Shell                     │
-│   ├─ Tray           ──KSNI────▶ GNOME AppIndicator              │
-│   ├─ Hotkeys        ──X11─────▶ XGrabKey                        │
-│   └─ Archiver       ──inotify─▶ host filesystem                 │
+│  install.sh (bash 오케스트레이터)                               │
+│   ├─ libvirt(qemu:///system) ── virsh ──▶ libvirtd ─KVM─▶ [VM]  │
+│   └─ FreeRDP (xfreerdp3)     ── RDP ───────────────────▶ [VM]  │
 │                                                                 │
-│  [VM] Windows 11 Enterprise (headless, 40GB qcow2)              │
-│   └─ KakaoTalk.exe  ── AppData junctioned to virtiofs mount ──┐ │
-│                                                               │ │
-│  Host filesystem                                              │ │
-│   └─ ~/.local/share/winbridge/data/kakao/  ◀──────────────────┘ │
-│                                            (virtiofs-shared)   │
+│  [VM] Windows Server 2022 Eval (기본 4 GB RAM, 2 vCPU, qcow2)   │
+│   ├─ explorer shell 비활성화 (B-2)                              │
+│   └─ KakaoTalk.exe (로그온 시 자동 시작)                        │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-Design principles:
+설계 원칙:
 
-- **The VM is headless.** You never see a Windows desktop — only the individual app windows projected through RemoteApp.
-- **Data is host-owned.** KakaoTalk writes its files into a virtiofs-shared directory that actually lives on the Linux filesystem. The VM can be rebuilt from scratch without losing data.
-- **The daemon is a thin coordinator.** It does not render anything itself; it wires together libvirt, FreeRDP, D-Bus, X11, and the filesystem. The sum is more useful than any one of them alone.
-- **New apps are a config change, not a code change.** Each supported Windows app is a TOML profile under `app-profiles/`.
+- **단일 앱(KakaoTalk) 한정.** 다중 앱·TOML 프로파일은 P2A 범위 밖
+- **bash + 멱등 스크립트.** Rust daemon이나 Cargo workspace, 별도 데몬 프로세스는 P2A에 없음
+- **데이터 영속성은 VM qcow2 내부.** virtiofs 호스트 공유는 P2A에 없음 (P2B 후보)
+- **수동 단계는 manual-checks 절차로 격리.** ISO URL/sha256은 사용자가 직접 확보
 
-### Code structure (Clean Architecture via Cargo workspace)
+## Quick start
 
-The daemon is split into four crates whose dependency direction is enforced by `Cargo.toml`:
+전제: Ubuntu 22.04 + KVM 활성 + `xfreerdp3` + `libvirt-daemon-system`/`virt-install`/`genisoimage`/`qemu-utils` 설치, 8 GB+ RAM, 50 GB+ 여유 디스크.
 
+```bash
+# manual-checks 절차로 확보한 값 입력
+export WINBRIDGE_ISO_URL='https://...'                                       # Server 2022 Eval ISO URL
+export WINBRIDGE_ISO_SHA256='...'                                            # 소문자 hex
+export WINBRIDGE_ISO_DEST="$HOME/Downloads/SERVER_EVAL_x64FRE_en-us.iso"     # 선택
+
+./install.sh
+# 30~50분 후 카톡 단독 RDP 창이 뜨면 폰으로 QR 페어링
 ```
-crates/domain           pure Rust types and traits (ports). No external deps.
-crates/application      use cases — orchestration logic. Depends on domain only.
-crates/infrastructure   adapters — libvirt, FreeRDP, D-Bus, tray, inotify. Depends on domain only.
-crates/daemon           binary — composition root that wires everything. Depends on all three.
+
+제거:
+
+```bash
+./uninstall.sh        # 각 단계 컨펌
+./uninstall.sh -y     # 자동 컨펌 (regression용)
 ```
-
-A domain type accidentally importing `rclpy` — sorry, I mean `libvirt` — becomes a compile error. The architecture is verified by the compiler, not by convention.
-
-## Data persistence and Windows licensing
-
-Windows in the VM runs from a freely-available **Windows 11 Enterprise 90-day evaluation** image. The daemon schedules `slmgr.vbs /rearm` calls to extend the evaluation up to the allowed maximum (~360 days), and when that is exhausted it rebuilds the VM from scratch using an unattended-install script.
-
-The rebuild is non-destructive to user data: all KakaoTalk data lives in a host directory shared to the VM via virtiofs, so wiping and reinstalling Windows does not touch chat archives, media, or settings. The only user-visible step after a rebuild is a one-time QR login from the mobile app.
-
-Users are responsible for complying with Microsoft's evaluation license. Users who prefer a permanent license can supply their own legally-acquired key.
 
 ## Target environment
 
-- Ubuntu 22.04 LTS (or compatible)
-- AMD-V or Intel VT-x with `/dev/kvm` accessible
-- X11 session (Wayland support is Phase 3)
-- GNOME desktop with `gnome-shell-extension-appindicator`
+- Ubuntu 22.04 LTS (검증 환경: `docs/environments/ubuntu-22.04-nvidia-amd.md`)
+- AMD-V 또는 Intel VT-x with `/dev/kvm` accessible
+- libvirt `qemu:///system`
+- FreeRDP 3 (`xfreerdp3`)
 - 8 GB+ RAM, 50 GB+ free disk
 
-## Supported applications (planned)
+## 알려진 한계 (P2A)
 
-| App | Phase | Status |
-|---|---|---|
-| KakaoTalk | 1 (MVP) | 설계 완료 |
-| LINE | 2 | Planned |
-| PotPlayer | 2 | Planned |
-| 공인인증서 브라우저 (Edge) | 3 | Planned |
+- KakaoTalk 1개 앱 한정
+- VM 자동 시작/idle suspend/만료(slmgr) 자동 관리 없음
+- Korean IME(한/영 전환) 자동 설치 없음 — 게스트 내 수동 설정
+- D-Bus 알림 브리지, 트레이/뱃지, 전역 핫키 없음 (P2B)
+- virtiofs 데이터 영속성/호스트 공유 없음 (P2B)
 
 ## Roadmap
 
-- **Phase 1 (MVP):** Windows VM automation, RemoteApp window surfacing, global hotkey launch, basic tray, KakaoTalk profile.
-- **Phase 2:** Unread badge, D-Bus notification bridge, daily archive sync, LINE/PotPlayer profiles.
-- **Phase 3:** License auto-renewal & VM rebuild automation, settings GUI, Wayland hotkeys, 공인인증서 workflow.
+- **P2A (현재):** Server 2022 Eval 무인 설치 자동화, B-2 폴백 KakaoTalk 단일 윈도우, install/uninstall 진입점
+- **P2B (예정):** 자동 시작/만료 관리, IME 자동화, 알림 브리지, 데이터 영속성, 추가 앱 후보 검토
+
+## Data persistence and Windows licensing
+
+Windows in the VM runs from the freely-available **Windows Server 2022 Evaluation** image (180-day eval). 만료 후 자동 재설치/rearm 자동화는 P2B 항목이다.
+
+P2A 단계에서는 KakaoTalk 데이터가 VM 내부 qcow2 디스크에 저장된다. 호스트 측 영속 공유(virtiofs)는 P2B 후보이며 현재 구현에 없다.
+
+Users are responsible for complying with Microsoft's evaluation license.
 
 ---
 
@@ -135,9 +136,9 @@ Users are responsible for complying with Microsoft's evaluation license. Users w
 
 **This project is independent of and not affiliated with Kakao Corp., any messenger service provider, or Microsoft.** It is a personal desktop integration tool.
 
-- **Windows licensing** — winbridge neither bundles nor distributes Windows. Users must obtain a valid Windows license (e.g. the freely downloadable Windows 11 Enterprise 90-day evaluation from Microsoft) to run the VM. Compliance with Microsoft's license terms is the user's responsibility.
+- **Windows licensing** — winbridge neither bundles nor distributes Windows. Users must obtain a valid Windows license (e.g. the freely downloadable Windows Server 2022 evaluation from Microsoft) to run the VM. Compliance with Microsoft's license terms is the user's responsibility.
 - **KakaoTalk and other apps** — winbridge does not modify, patch, or reverse-engineer any application. It runs the official Windows binary, unmodified, inside a VM. Users must comply with each application's Terms of Service. This project must not be used to violate any service's ToS, automate abuse, or circumvent paid features.
-- **Scope limitations (design-enforced):** The bundled profiles implement only *passive* preservation of data that the app itself writes to disk. This project explicitly does **not** implement unofficial protocol reimplementation, scraping of expired server content, bypassing server-side retention policies, or any form of automated message traffic.
+- **Scope limitations (design-enforced):** The bundled installer implements only *passive* operation of the official KakaoTalk Windows client. This project explicitly does **not** implement unofficial protocol reimplementation, scraping of expired server content, bypassing server-side retention policies, or any form of automated message traffic.
 - **No warranty.** Provided as-is under the MIT License. See [`LICENSE`](LICENSE).
 
 If you believe this project violates a specific right or agreement, please open an issue before any other action.

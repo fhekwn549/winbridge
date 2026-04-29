@@ -21,7 +21,7 @@ usage() {
             envsubst, genisoimage, setfacl, FreeRDP(xfreerdp3/xfreerdp/flatpak)
   - 사용자가 libvirt 그룹 멤버
   - libvirtd 서비스 활성 (warning, error 아님)
-  - 디스크 여유: \$HOME ≥ 70GB, / ≥ 5GB
+  - 디스크 여유: \$HOME ≥ 30GB (sparse qcow2 실사용 기준), / ≥ 5GB
   - 세션 타입 (X11 검증 / Wayland·기타 best-effort)
   - 커널 버전 (5.x 미만은 best-effort 경고)
 
@@ -89,9 +89,10 @@ log_info "디스크 여유 검증..."
 home_gb=$(df -BG --output=avail "$HOME" | tail -1 | tr -d 'G ')
 root_gb=$(df -BG --output=avail / | tail -1 | tr -d 'G ')
 
-if [ "${home_gb:-0}" -lt 70 ]; then
-    log_error "\$HOME 디스크 여유 ${home_gb}GB < 필요 70GB"
-    log_error "  내역: ISO 5GB + qcow2 60GB sparse + 빌드 여유"
+if [ "${home_gb:-0}" -lt 30 ]; then
+    log_error "\$HOME 디스크 여유 ${home_gb}GB < 필요 30GB"
+    log_error "  내역(실사용 기준): ISO 5GB(있으면 제외) + qcow2 sparse 실사용 ~20GB + 빌드 마진 5GB"
+    log_error "  qcow2는 60GB 선언이지만 sparse라 Windows 실설치 후 보통 ~20GB 점유"
     ((errors++))
 else
     log_info "  \$HOME 여유: ${home_gb}GB OK"

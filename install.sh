@@ -106,14 +106,23 @@ elif command -v flatpak >/dev/null 2>&1 && flatpak info com.freerdp.FreeRDP >/de
     RDP=(flatpak run com.freerdp.FreeRDP)
 else
     log_warn "FreeRDP 부재로 자동 표시 생략. 수동으로 다음 명령:"
-    log_warn "  flatpak run com.freerdp.FreeRDP /v:$WINBRIDGE_VM_IP /u:Administrator /p:'<credentials 참조>' /cert:ignore /dynamic-resolution"
+    log_warn "  source ~/.config/winbridge/credentials"
+    log_warn "  printf '%s\\n' \"\$WINBRIDGE_ADMIN_PASSWORD\" | xfreerdp3 /v:$WINBRIDGE_VM_IP /u:Administrator /from-stdin /cert:ignore /size:1280x720"
     exit 0
 fi
 
-# /p: 보안 경고 그대로 (단순화). 향후 /from-stdin으로 변경 검토.
-"${RDP[@]}" /v:"$WINBRIDGE_VM_IP:3389" \
-    /u:Administrator /p:"$WINBRIDGE_ADMIN_PASSWORD" \
-    /cert:ignore /dynamic-resolution || true
+# 비밀번호는 /p: 대신 stdin으로 전달해 ps/proc 노출을 회피.
+# /kbd:0x00000409 = 클라이언트 keymap을 en-US로 강제. 서버측 한국어 IME가 활성이라도
+#   xfreerdp v2.x가 RDP 채널 협상 중 한국어 keymap 처리 시 segfault하는 케이스를 회피.
+# 해상도 옵션: xfreerdp v2.x X11 백엔드에서 /dynamic-resolution이 SIGKILL 사례 있어 v2는 고정 해상도.
+if [[ "${RDP[0]}" == xfreerdp3 ]]; then
+    RDP_RES_OPT=(/dynamic-resolution)
+else
+    RDP_RES_OPT=(/size:1280x720)
+fi
+printf '%s\n' "$WINBRIDGE_ADMIN_PASSWORD" | "${RDP[@]}" /v:"$WINBRIDGE_VM_IP:3389" \
+    /u:Administrator /from-stdin \
+    /cert:ignore /kbd:0x00000409 "${RDP_RES_OPT[@]}" || true
 
 log_info "RDP 창 종료. install.sh 정상 종료."
 log_info "VM은 계속 실행 중입니다. 종료/일시정지는 P2B의 stop-session.sh로 (현재는 'sudo virsh -c qemu:///system shutdown winbridge-srv2022')"

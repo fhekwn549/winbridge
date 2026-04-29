@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# DEPRECATED (P1A 레거시): Windows 11 + qemu:///session + virtiofs 흐름의 P1A 잔재.
+# P2A 채택 흐름은 Windows Server 2022 + qemu:///system + B-2 폴백이며 진입점은 ./install.sh다.
+# 보존 이유: 과거 Phase 0 조사 맥락 + scripts/vm/tests/ 회귀 테스트 호환.
+# 신규 작업은 scripts/host/00-check-prerequisites.sh 사용.
 # check prerequisites on the host (packages, kernel features, permissions)
 set -euo pipefail
 

@@ -66,13 +66,22 @@ fi
 # 3. AppArmor (선택)
 APPARMOR_LOCAL=/etc/apparmor.d/local/abstractions/libvirt-qemu
 log_info "3. AppArmor abstractions..."
-if [ -f "$APPARMOR_LOCAL" ] && sudo grep -q "winbridge" "$APPARMOR_LOCAL" 2>/dev/null; then
-    if confirm "  $APPARMOR_LOCAL의 winbridge 관련 줄 제거? (다른 winbridge 인스턴스 있으면 keep)"; then
-        # Marker comment + 다음 2줄 제거
-        sudo sed -i '/# winbridge:/,+2d' "$APPARMOR_LOCAL"
+if [ -f "$APPARMOR_LOCAL" ] && sudo grep -q "^# winbridge:BEGIN$" "$APPARMOR_LOCAL" 2>/dev/null; then
+    if confirm "  $APPARMOR_LOCAL의 winbridge 블록 제거? (다른 winbridge 인스턴스 있으면 keep)"; then
+        # BEGIN/END 마커 사이 전체 블록 제거 (round-trip safe)
+        sudo sed -i '/^# winbridge:BEGIN$/,/^# winbridge:END$/d' "$APPARMOR_LOCAL"
         sudo systemctl reload apparmor 2>/dev/null || sudo service apparmor reload || \
             log_warn "  apparmor reload 실패. 수동: sudo systemctl reload apparmor"
-        log_info "  AppArmor winbridge 항목 제거"
+        log_info "  AppArmor winbridge 블록 제거"
+    else
+        log_info "  AppArmor keep (사용자 선택)"
+    fi
+elif [ -f "$APPARMOR_LOCAL" ] && sudo grep -q "^# winbridge:" "$APPARMOR_LOCAL" 2>/dev/null; then
+    # 구버전 (마커 없는) 흔적 호환 제거
+    if confirm "  $APPARMOR_LOCAL에서 구버전 winbridge 흔적 발견. 제거? (회귀 호환)"; then
+        sudo sed -i '/^# winbridge:/,+2d' "$APPARMOR_LOCAL"
+        sudo systemctl reload apparmor 2>/dev/null || sudo service apparmor reload || true
+        log_info "  AppArmor 구버전 흔적 제거"
     else
         log_info "  AppArmor keep (사용자 선택)"
     fi

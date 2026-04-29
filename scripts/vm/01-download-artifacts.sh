@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# DEPRECATED (P1A 레거시): Windows 11 + virtiofs 흐름용 다중 아티팩트 다운로더.
+# P2A는 Server 2022 ISO 단일 다운로드만 필요하며 진입점은 scripts/host/01-download-iso.sh다.
+# 보존 이유: 과거 Phase 0 조사 맥락 + scripts/vm/tests/ 회귀 테스트 호환.
 # download Windows ISO, VirtIO drivers, KakaoTalk installer
 set -euo pipefail
 

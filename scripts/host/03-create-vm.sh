@@ -15,8 +15,14 @@ source "$REPO_ROOT/scripts/lib/common.sh"
 : "${WINBRIDGE_VM_MAC:=52:54:00:7B:01:01}"
 : "${WINBRIDGE_HOME_POOL_DIR:=$HOME/.local/share/libvirt/images}"
 : "${WINBRIDGE_VM_DISK_PATH:=$WINBRIDGE_HOME_POOL_DIR/$WINBRIDGE_VM_NAME.qcow2}"
-: "${WINBRIDGE_ISO_PATH:=$HOME/.cache/winbridge/server2022.iso}"
-: "${WINBRIDGE_HOSTNAME:=$WINBRIDGE_VM_NAME}"
+# 사용자 문서 변수는 WINBRIDGE_ISO_DEST. 템플릿 내부 변수 WINBRIDGE_ISO_PATH는 그것을 따른다.
+: "${WINBRIDGE_ISO_PATH:=${WINBRIDGE_ISO_DEST:-$HOME/.cache/winbridge/server2022.iso}}"
+# Windows NetBIOS ComputerName 한계 15자 — VM_NAME이 길면 자동 절단
+: "${WINBRIDGE_HOSTNAME:=${WINBRIDGE_VM_NAME:0:15}}"
+if [ "${#WINBRIDGE_HOSTNAME}" -gt 15 ]; then
+    log_error "WINBRIDGE_HOSTNAME='$WINBRIDGE_HOSTNAME' (${#WINBRIDGE_HOSTNAME}자) > Windows NetBIOS 한계 15자"
+    exit 1
+fi
 : "${WINBRIDGE_TIMEZONE:=Korea Standard Time}"
 : "${WINBRIDGE_BUILD_DIR:=$REPO_ROOT/build}"
 : "${WINBRIDGE_LIBVIRT_URI:=qemu:///system}"
@@ -66,8 +72,8 @@ export WINBRIDGE_HOSTNAME WINBRIDGE_ADMIN_PASSWORD WINBRIDGE_TIMEZONE
 log_info "autounattend.xml 렌더..."
 render_template "$REPO_ROOT/config/autounattend.xml.template" > "$OEM_DIR/autounattend.xml"
 
-log_info "firstboot.ps1 복사..."
-cp "$REPO_ROOT/config/firstboot.ps1" "$OEM_DIR/firstboot.ps1"
+log_info "firstboot.ps1 복사 (UTF-8 BOM 추가 — PowerShell 5.x가 BOM 없으면 ANSI cp949로 잘못 해석)..."
+{ printf '\xEF\xBB\xBF'; cat "$REPO_ROOT/config/firstboot.ps1"; } > "$OEM_DIR/firstboot.ps1"
 
 # 3. OEM ISO 생성
 OEM_ISO="$WINBRIDGE_BUILD_DIR/oem.iso"
