@@ -100,7 +100,18 @@ async fn run_tray() -> error::WinbridgeResult<()> {
                     });
                 }
                 TrayAction::OpenReady { vm_ip, password } => {
-                    if let Err(err) = rdp::RdpWindow::open(&app, &vm_ip, &password) {
+                    let manager_for_close = manager.clone();
+                    let handle_for_close = handle.clone();
+                    let on_close: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+                        let manager = manager_for_close.clone();
+                        handle_for_close.spawn(async move {
+                            if let Err(err) = manager.managed_save().await {
+                                tracing::warn!("managed save after RDP close failed: {err}");
+                            }
+                        });
+                    });
+
+                    if let Err(err) = rdp::RdpWindow::open(&app, &vm_ip, &password, on_close) {
                         tracing::error!("RDP window open failed: {err}");
                     }
                 }
@@ -166,10 +177,22 @@ async fn run_start() -> error::WinbridgeResult<()> {
     let handle = tokio::runtime::Handle::current();
     let vm_ip = cfg.vm_ip.clone();
     let password = cfg.admin_password.clone();
+    let manager = Arc::new(manager);
 
     app.connect_activate(move |app| {
         let _guard = handle.enter();
-        if let Err(err) = rdp::RdpWindow::open(app, &vm_ip, &password) {
+        let manager_for_close = manager.clone();
+        let handle_for_close = handle.clone();
+        let on_close: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+            let manager = manager_for_close.clone();
+            handle_for_close.spawn(async move {
+                if let Err(err) = manager.managed_save().await {
+                    tracing::warn!("managed save after RDP close failed: {err}");
+                }
+            });
+        });
+
+        if let Err(err) = rdp::RdpWindow::open(app, &vm_ip, &password, on_close) {
             tracing::error!("RDP window open failed: {err}");
         }
     });

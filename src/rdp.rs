@@ -235,7 +235,12 @@ pub struct RdpProbeResult {
 pub struct RdpWindow;
 
 impl RdpWindow {
-    pub fn open(app: &gtk::Application, vm_ip: &str, password: &str) -> WinbridgeResult<()> {
+    pub fn open(
+        app: &gtk::Application,
+        vm_ip: &str,
+        password: &str,
+        on_close: Arc<dyn Fn() + Send + Sync>,
+    ) -> WinbridgeResult<()> {
         let win = gtk::ApplicationWindow::builder()
             .application(app)
             .title("KakaoTalk")
@@ -335,6 +340,11 @@ impl RdpWindow {
         drawing.add_controller(motion_controller);
         drawing.set_can_focus(true);
         drawing.grab_focus();
+
+        win.connect_close_request(move |_| {
+            (on_close)();
+            glib::Propagation::Proceed
+        });
 
         let vm_ip = vm_ip.to_string();
         let password = password.to_string();
