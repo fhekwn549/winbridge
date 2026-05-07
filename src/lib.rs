@@ -1,5 +1,7 @@
 pub mod cli;
+pub(crate) mod clipboard;
 pub mod config;
+pub mod desktop;
 pub mod error;
 pub mod rdp;
 pub mod tray;

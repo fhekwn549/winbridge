@@ -35,7 +35,9 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 tokio = { version = "1.40", features = ["macros", "rt-multi-thread", "signal", "sync", "time", "io-util", "net"] }
 async-trait = "0.1"
+async-channel = "2.3"
 directories = "5.0"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 # GUI + tray — gtk4 0.7.x + glib 0.18.x: 시스템 GTK4 4.6.9 (Ubuntu 22.04) 호환
 gtk4 = { version = "0.7", features = ["v4_6"] }
@@ -43,7 +45,7 @@ glib = "0.18"
 ksni = "0.2"
 
 # RDP — 2026-04-29 기준 latest stable matching set (plan 버전 0.5/0.4에서 상향)
-ironrdp = { version = "0.14", features = ["connector", "graphics", "session"] }
+ironrdp = { version = "0.14", features = ["cliprdr", "connector", "displaycontrol", "dvc", "graphics", "session"] }
 ironrdp-tokio = { version = "0.8", features = ["reqwest-rustls-ring"] }
 ironrdp-pdu = "0.7"
 ironrdp-graphics = "0.7"

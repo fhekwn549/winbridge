@@ -1,4 +1,5 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "winbridge", version, about = "Linux-native KakaoTalk manager")]
@@ -13,7 +14,15 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Start or resume the VM and open the RDP window.
-    Start,
+    Start {
+        /// Window mode to open after the VM is ready.
+        #[arg(long, value_enum, default_value_t = WindowMode::App)]
+        mode: WindowMode,
+
+        /// RDP display strategy to use for app mode experiments.
+        #[arg(long, value_enum, default_value_t = DisplayStrategy::StableSlots)]
+        display: DisplayStrategy,
+    },
 
     /// Close the RDP window and pause the VM.
     Stop {
@@ -22,6 +31,25 @@ pub enum Command {
         shutdown: bool,
     },
 
+    /// Install the KakaoTalk desktop launcher and icon for the current user.
+    InstallDesktopEntry {
+        /// winbridge executable path to put in the desktop launcher.
+        #[arg(long)]
+        exec: Option<PathBuf>,
+    },
+
     /// Print the VM state.
     Status,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowMode {
+    App,
+    Desktop,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DisplayStrategy {
+    StableSlots,
+    ExperimentalMultimon,
 }

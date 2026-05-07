@@ -142,15 +142,19 @@ try {
 
     # RunOnce 폴백 — 다음 부팅의 AutoLogon 시점에 한 번 더 시도 (StuckRects3 안정화 후)
     $fallbackCmd = @'
+$advKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
+if (-not (Test-Path $advKey)) {
+    New-Item -Path $advKey -Force | Out-Null
+}
+Set-ItemProperty -Path $advKey -Name "HideIcons" -Value 1 -Type DWord -Force
 $sr3 = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StuckRects3"
 if (Test-Path $sr3) {
     $b = (Get-ItemProperty -Path $sr3 -Name Settings).Settings
     if ($b.Length -gt 8) {
         $b[8] = $b[8] -bor 0x01
-        Set-ItemProperty -Path $sr3 -Name Settings -Value $b
+        Set-ItemProperty -Path $sr3 -Name Settings -Value $b -Force
     }
 }
-Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "HideIcons" -Value 1 -Type DWord -Force
 Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
 '@
     $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($fallbackCmd))
