@@ -1,0 +1,60 @@
+[package]
+name = "winbridge"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Linux-native KakaoTalk manager backed by a Windows VM"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "winbridge"
+path = "src/main.rs"
+
+[profile.release]
+panic = "abort"
+strip = true
+lto = "thin"
+codegen-units = 1
+
+[profile.dev]
+panic = "abort"
+
+[features]
+default = []
+integration = []  # `cargo test --features integration` 으로만 실제 libvirt 통합 테스트 활성화
+
+[dependencies]
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-appender = "0.2"
+clap = { version = "4.5", features = ["derive", "env"] }
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+tokio = { version = "1.40", features = ["macros", "rt-multi-thread", "signal", "sync", "time", "io-util", "net"] }
+async-trait = "0.1"
+async-channel = "2.3"
+directories = "5.0"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+# GUI + tray — gtk4 0.7.x + glib 0.18.x: 시스템 GTK4 4.6.9 (Ubuntu 22.04) 호환
+gtk4 = { version = "0.7", features = ["v4_6"] }
+glib = "0.18"
+ksni = "0.2"
+
+# RDP — 2026-04-29 기준 latest stable matching set (plan 버전 0.5/0.4에서 상향)
+ironrdp = { version = "0.14", features = ["cliprdr", "connector", "displaycontrol", "dvc", "graphics", "session"] }
+ironrdp-tokio = { version = "0.8", features = ["reqwest-rustls-ring"] }
+ironrdp-pdu = "0.7"
+ironrdp-graphics = "0.7"
+tokio-rustls = "0.26"
+x509-cert = "0.2"
+
+# libvirt
+virt = "0.4"
+
+[dev-dependencies]
+mockall = "0.13"
+tempfile = "3"

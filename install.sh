@@ -126,3 +126,10 @@ printf '%s\n' "$WINBRIDGE_ADMIN_PASSWORD" | "${RDP[@]}" /v:"$WINBRIDGE_VM_IP:338
 
 log_info "RDP 창 종료. install.sh 정상 종료."
 log_info "VM은 계속 실행 중입니다. 종료/일시정지는 P2B의 stop-session.sh로 (현재는 'sudo virsh -c qemu:///system shutdown winbridge-srv2022')"
+
+RUST_BIN="$REPO_ROOT/target/release/winbridge"
+if [[ -x "$RUST_BIN" ]]; then
+    log_info ""
+    log_info "Rust manager 발견됨. 다음부터는 다음 명령으로 즉시 카톡 실행:"
+    log_info "  $RUST_BIN"
+fi
