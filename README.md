@@ -140,12 +140,25 @@ Requirements:
 - 8 GB or more RAM
 - 50 GB or more free disk space
 
-Provide the Windows ISO location and checksum:
+Get the Windows ISO from Microsoft's official Evaluation Center:
+
+<https://www.microsoft.com/en-us/evalcenter/download-windows-server-2022>
+
+Recommended path: download the ISO with your browser, then point winbridge at the local file and compute the checksum from that exact file.
 
 ```bash
-export WINBRIDGE_ISO_URL='https://...'
-export WINBRIDGE_ISO_SHA256='...'
 export WINBRIDGE_ISO_DEST="$HOME/Downloads/SERVER_EVAL_x64FRE_en-us.iso"
+export WINBRIDGE_ISO_SHA256="$(sha256sum "$WINBRIDGE_ISO_DEST" | awk '{print $1}')"
+unset WINBRIDGE_ISO_URL
+```
+
+If you copied a direct ISO URL from the Microsoft page and want `install.sh` to download it, set `WINBRIDGE_ISO_URL` too. These direct links can expire, so compute the checksum once after the first download and reuse the local file when possible.
+
+```bash
+export WINBRIDGE_ISO_URL='https://download.microsoft.com/.../SERVER_EVAL_x64FRE_en-us.iso'
+export WINBRIDGE_ISO_DEST="$HOME/Downloads/SERVER_EVAL_x64FRE_en-us.iso"
+curl -fL -o "$WINBRIDGE_ISO_DEST" "$WINBRIDGE_ISO_URL"
+export WINBRIDGE_ISO_SHA256="$(sha256sum "$WINBRIDGE_ISO_DEST" | awk '{print $1}')"
 ```
 
 Install:

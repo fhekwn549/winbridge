@@ -140,12 +140,25 @@ sudo apt install -y gnome-shell-extension-appindicator
 - 8 GB 이상 RAM
 - 50 GB 이상 여유 디스크
 
-Windows ISO 위치와 체크섬을 설정합니다.
+Windows ISO는 Microsoft 공식 Evaluation Center에서 받습니다.
+
+<https://www.microsoft.com/en-us/evalcenter/download-windows-server-2022>
+
+권장 경로는 브라우저로 ISO를 직접 받은 뒤, 그 로컬 파일 경로와 체크섬을 설정하는 방식입니다.
 
 ```bash
-export WINBRIDGE_ISO_URL='https://...'
-export WINBRIDGE_ISO_SHA256='...'
 export WINBRIDGE_ISO_DEST="$HOME/Downloads/SERVER_EVAL_x64FRE_en-us.iso"
+export WINBRIDGE_ISO_SHA256="$(sha256sum "$WINBRIDGE_ISO_DEST" | awk '{print $1}')"
+unset WINBRIDGE_ISO_URL
+```
+
+Microsoft 페이지에서 ISO 직접 다운로드 URL을 복사했고 `install.sh`가 다운로드까지 하게 만들고 싶다면 `WINBRIDGE_ISO_URL`도 설정합니다. 이 직접 링크는 만료될 수 있으므로, 가능하면 한 번 받은 로컬 ISO 파일과 그 체크섬을 재사용하는 편이 안정적입니다.
+
+```bash
+export WINBRIDGE_ISO_URL='https://download.microsoft.com/.../SERVER_EVAL_x64FRE_en-us.iso'
+export WINBRIDGE_ISO_DEST="$HOME/Downloads/SERVER_EVAL_x64FRE_en-us.iso"
+curl -fL -o "$WINBRIDGE_ISO_DEST" "$WINBRIDGE_ISO_URL"
+export WINBRIDGE_ISO_SHA256="$(sha256sum "$WINBRIDGE_ISO_DEST" | awk '{print $1}')"
 ```
 
 설치:
