@@ -1,0 +1,256 @@
+# winbridge Installation Guide
+
+This guide walks through a first-time winbridge installation on Ubuntu 22.04 and the daily commands for opening KakaoTalk. The commands are written so they can usually be copied directly into a terminal.
+
+Korean guide: [INSTALL.ko.md](INSTALL.ko.md)
+
+## 1. Base Environment
+
+Recommended environment:
+
+- Ubuntu 22.04
+- 8 GB RAM or more
+- 50 GB free disk space or more
+- Hardware virtualization enabled in BIOS/UEFI
+- Internet access
+
+Check that KVM is available.
+
+```bash
+ls -l /dev/kvm
+```
+
+If `/dev/kvm` does not exist, enable AMD-V or Intel VT-x in BIOS/UEFI first.
+
+## 2. Install Packages
+
+```bash
+sudo apt update
+sudo apt install -y \
+  git \
+  curl \
+  openssl \
+  netcat-openbsd \
+  build-essential \
+  pkg-config \
+  libssl-dev \
+  libvirt-daemon-system \
+  libvirt-clients \
+  virtinst \
+  qemu-system-x86 \
+  qemu-utils \
+  genisoimage \
+  gettext-base \
+  acl \
+  freerdp2-x11 \
+  desktop-file-utils \
+  libgtk-4-dev \
+  libgraphene-1.0-dev \
+  libpango1.0-dev \
+  libvirt-dev \
+  gnome-shell-extension-appindicator
+```
+
+Add the current user to the `libvirt` group.
+
+```bash
+sudo usermod -aG libvirt "$USER"
+newgrp libvirt
+```
+
+If `virsh -c qemu:///system list --all` still fails with a permission error, log out and log back in.
+
+```bash
+virsh -c qemu:///system list --all
+```
+
+## 3. Install Rust
+
+Skip this step if `cargo` is already installed.
+
+```bash
+command -v cargo || curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source "$HOME/.cargo/env"
+```
+
+Verify Rust:
+
+```bash
+cargo --version
+```
+
+## 4. Clone Source Code
+
+```bash
+cd "$HOME"
+git clone https://github.com/fhekwn549/winbridge.git
+cd "$HOME/winbridge"
+```
+
+If the repository is already cloned, run only:
+
+```bash
+cd "$HOME/winbridge"
+git pull
+```
+
+## 5. Prepare the Windows Server 2022 ISO
+
+Download the Windows Server 2022 ISO from the official Microsoft Evaluation Center.
+
+<https://www.microsoft.com/en-us/evalcenter/download-windows-server-2022>
+
+Set the path to the ISO file downloaded in your browser. Change the filename if yours is different.
+
+```bash
+export WINBRIDGE_ISO_DEST="$HOME/Downloads/SERVER_EVAL_x64FRE_en-us.iso"
+```
+
+Check that the file exists.
+
+```bash
+ls -lh "$WINBRIDGE_ISO_DEST"
+```
+
+Calculate the checksum.
+
+```bash
+export WINBRIDGE_ISO_SHA256="$(sha256sum "$WINBRIDGE_ISO_DEST" | awk '{print $1}')"
+echo "$WINBRIDGE_ISO_SHA256"
+```
+
+If you already downloaded the ISO in your browser, no download URL is needed.
+
+```bash
+unset WINBRIDGE_ISO_URL
+```
+
+If you copied a direct download URL from the Microsoft page and want winbridge to handle the download, run the commands below. Direct Microsoft download URLs can expire over time.
+
+```bash
+export WINBRIDGE_ISO_URL='https://download.microsoft.com/.../SERVER_EVAL_x64FRE_en-us.iso'
+export WINBRIDGE_ISO_DEST="$HOME/Downloads/SERVER_EVAL_x64FRE_en-us.iso"
+curl -fL -o "$WINBRIDGE_ISO_DEST" "$WINBRIDGE_ISO_URL"
+export WINBRIDGE_ISO_SHA256="$(sha256sum "$WINBRIDGE_ISO_DEST" | awk '{print $1}')"
+```
+
+## 6. Install the VM
+
+Start the installer. The unattended Windows setup usually takes about 30-50 minutes.
+
+```bash
+./install.sh
+```
+
+The installer automatically performs these steps:
+
+- Creates a generated Windows Administrator password at `~/.config/winbridge/credentials`
+- Checks KVM, libvirt, FreeRDP, and VM build tools
+- Verifies the Windows ISO checksum
+- Configures libvirt networking and storage
+- Creates the Windows VM and runs unattended setup
+- Installs KakaoTalk and registers it for automatic startup
+- Enables Windows taskbar auto-hide
+- Verifies RDP access
+
+When installation finishes, an RDP window opens. On first use, pair or authenticate Windows KakaoTalk with QR login or phone-number login.
+
+## 7. Build winbridge
+
+```bash
+cargo build --release
+```
+
+## 8. Install the Desktop Launcher
+
+```bash
+./target/release/winbridge install-desktop-entry --exec "$PWD/target/release/winbridge"
+```
+
+If the KakaoTalk icon does not appear in the GNOME app list or Dock, log out and log back in once.
+
+## 9. Run
+
+Start the tray manager.
+
+```bash
+./target/release/winbridge
+```
+
+Click `Open KakaoTalk` from the top tray icon, or launch KakaoTalk from the app list.
+
+You can also open only the KakaoTalk window from the terminal.
+
+```bash
+./target/release/winbridge start --mode app
+```
+
+Use desktop mode when you need the full Windows desktop.
+
+```bash
+./target/release/winbridge start --mode desktop
+```
+
+## 10. Stop and Restart
+
+Closing only the KakaoTalk RDP window keeps the VM running in the background.
+
+To pause the VM:
+
+```bash
+./target/release/winbridge stop
+```
+
+Check VM status:
+
+```bash
+./target/release/winbridge status
+```
+
+Restart the tray process:
+
+```bash
+pkill -f 'target/release/winbridge'
+./target/release/winbridge
+```
+
+## 11. If the Windows Taskbar Reappears
+
+New VM installations apply Windows taskbar auto-hide automatically.
+
+If the taskbar keeps showing in an existing VM, run the contents of `scripts/windows/position-kakaotalk.ps1` once in Windows PowerShell.
+
+## 12. Uninstall
+
+Uninstall with confirmation prompts:
+
+```bash
+./uninstall.sh
+```
+
+Uninstall without prompts:
+
+```bash
+./uninstall.sh -y
+```
+
+## Troubleshooting
+
+If libvirt fails with a permission error:
+
+```bash
+id -nG "$USER"
+virsh -c qemu:///system list --all
+```
+
+Check the RDP port:
+
+```bash
+nc -zv -w 3 192.168.122.50 3389
+```
+
+Check running winbridge processes:
+
+```bash
+pgrep -af 'winbridge'
+```

@@ -42,7 +42,7 @@ P2A uses a VM-based fallback instead of RemoteApp. RemoteApp-style single-window
 
 ## Installation
 
-For terminal-first installation and daily-use commands, see [install.md](install.md).
+For terminal-first installation and daily-use commands, see [INSTALL.md](INSTALL.md).
 
 ## Architecture
 

@@ -2,6 +2,8 @@
 
 이 문서는 Ubuntu 22.04 기준으로 winbridge를 처음 설치하고 KakaoTalk을 실행하는 절차입니다. 가능한 그대로 복사해서 터미널에 붙여넣을 수 있게 작성했습니다.
 
+영문 설치 가이드는 [INSTALL.md](INSTALL.md)를 보세요.
+
 ## 1. 기본 환경
 
 권장 환경:
@@ -81,7 +83,7 @@ cargo --version
 
 ```bash
 cd "$HOME"
-git clone -b phase-2b-rust-mvp https://github.com/fhekwn549/winbridge.git
+git clone https://github.com/fhekwn549/winbridge.git
 cd "$HOME/winbridge"
 ```
 
