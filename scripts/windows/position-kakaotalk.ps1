@@ -38,7 +38,14 @@ function Find-KakaoTalkExe {
         }
     }
 
-    foreach ($base in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+    $searchRoots = @()
+    foreach ($root in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+        if ($root) {
+            $searchRoots += Join-Path $root 'Kakao'
+        }
+    }
+
+    foreach ($base in $searchRoots) {
         if (-not $base -or -not (Test-Path $base)) {
             continue
         }
@@ -57,6 +64,20 @@ function Get-KakaoTalkMainProcess {
     Get-Process -Name 'KakaoTalk' -ErrorAction SilentlyContinue |
         Where-Object { $_.MainWindowHandle -ne 0 } |
         Select-Object -First 1
+}
+
+function Wait-KakaoTalkMainProcess {
+    param([int]$Attempts = 60)
+
+    for ($i = 0; $i -lt $Attempts; $i++) {
+        Start-Sleep -Milliseconds 250
+        $process = Get-KakaoTalkMainProcess
+        if ($process) {
+            return $process
+        }
+    }
+
+    return $null
 }
 
 function Enable-TaskbarAutoHide {
@@ -94,11 +115,10 @@ function Hide-Taskbar {
 
 $process = Get-KakaoTalkMainProcess
 if (-not $process) {
-    Start-Process -FilePath (Find-KakaoTalkExe)
-
-    for ($i = 0; $i -lt 60; $i++) {
-        Start-Sleep -Milliseconds 250
-        $process = Get-KakaoTalkMainProcess
+    $kakaoExe = Find-KakaoTalkExe
+    foreach ($attempt in 1..2) {
+        Start-Process -FilePath $kakaoExe
+        $process = Wait-KakaoTalkMainProcess
         if ($process) {
             break
         }

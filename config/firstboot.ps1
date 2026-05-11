@@ -89,11 +89,172 @@ try {
     FailWith 'SHELL_SET' $_.Exception.Message
 }
 
-# Step 6: 카톡 자동 시작 등록 (HKCU Run, explorer가 처리)
+# Step 6: 카톡 foreground 실행/위치 보정 스크립트 설치 + 자동 시작 등록
 try {
-    Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' `
-        -Name 'KakaoTalk' -Value "`"$KakaoExe`"" -Type String
-    Log "[OK] KakaoTalk HKCU Run 등록"
+    $positionScriptPath = 'C:\winbridge\position-kakaotalk.ps1'
+    $positionScript = @'
+param(
+    [int]$Left = 0,
+    [int]$Top = 0,
+    [int]$Width = 480,
+    [int]$Height = 680
+)
+
+$ErrorActionPreference = 'Stop'
+$LogPath = 'C:\winbridge\position-kakaotalk.log'
+
+function Log {
+    param([string]$Message)
+    $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    "$ts $Message" | Out-File -FilePath $LogPath -Append -Encoding utf8
+}
+
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class WinbridgeWindow {
+    [DllImport("user32.dll")]
+    public static extern bool MoveWindow(IntPtr hWnd, int x, int y, int width, int height, bool repaint);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int command);
+
+    [DllImport("user32.dll", SetLastError=true)]
+    public static extern IntPtr FindWindow(string className, string windowName);
+}
+"@
+
+function Find-KakaoTalkExe {
+    $candidates = @(
+        "$env:ProgramFiles\Kakao\KakaoTalk\KakaoTalk.exe",
+        "${env:ProgramFiles(x86)}\Kakao\KakaoTalk\KakaoTalk.exe"
+    )
+
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path $candidate)) {
+            return $candidate
+        }
+    }
+
+    $searchRoots = @()
+    foreach ($root in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+        if ($root) {
+            $searchRoots += Join-Path $root 'Kakao'
+        }
+    }
+
+    foreach ($base in $searchRoots) {
+        if (-not (Test-Path $base)) {
+            continue
+        }
+
+        $found = Get-ChildItem -Path $base -Recurse -Filter 'KakaoTalk.exe' -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($found) {
+            return $found.FullName
+        }
+    }
+
+    throw 'KakaoTalk.exe not found.'
+}
+
+function Get-KakaoTalkMainProcess {
+    Get-Process -Name 'KakaoTalk' -ErrorAction SilentlyContinue |
+        Where-Object { $_.MainWindowHandle -ne 0 } |
+        Select-Object -First 1
+}
+
+function Wait-KakaoTalkMainProcess {
+    param([int]$Attempts = 60)
+
+    for ($i = 0; $i -lt $Attempts; $i++) {
+        Start-Sleep -Milliseconds 250
+        $process = Get-KakaoTalkMainProcess
+        if ($process) {
+            return $process
+        }
+    }
+
+    return $null
+}
+
+function Enable-TaskbarAutoHide {
+    $advanced = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
+    if (-not (Test-Path $advanced)) {
+        New-Item -Path $advanced -Force | Out-Null
+    }
+    Set-ItemProperty -Path $advanced -Name 'HideIcons' -Value 1 -Type DWord -Force
+
+    foreach ($key in @(
+        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StuckRects3',
+        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StuckRects2'
+    )) {
+        if (-not (Test-Path $key)) {
+            continue
+        }
+
+        $settings = (Get-ItemProperty -Path $key -Name Settings -ErrorAction SilentlyContinue).Settings
+        if ($settings -and $settings.Length -gt 8) {
+            $settings[8] = $settings[8] -bor 0x01
+            Set-ItemProperty -Path $key -Name Settings -Value $settings -Force
+        }
+    }
+}
+
+function Hide-Taskbar {
+    $SW_HIDE = 0
+    foreach ($className in @('Shell_TrayWnd', 'Shell_SecondaryTrayWnd')) {
+        $handle = [WinbridgeWindow]::FindWindow($className, $null)
+        if ($handle -ne [IntPtr]::Zero) {
+            [WinbridgeWindow]::ShowWindow($handle, $SW_HIDE) | Out-Null
+        }
+    }
+}
+
+try {
+    Log 'position-kakaotalk.ps1 START'
+    $process = Get-KakaoTalkMainProcess
+    if (-not $process) {
+        $kakaoExe = Find-KakaoTalkExe
+        foreach ($attempt in 1..2) {
+            Start-Process -FilePath $kakaoExe
+            $process = Wait-KakaoTalkMainProcess
+            if ($process) {
+                break
+            }
+        }
+    }
+
+    if (-not $process -or $process.MainWindowHandle -eq 0) {
+        throw 'KakaoTalk main window not found.'
+    }
+
+    $SW_RESTORE = 9
+    Enable-TaskbarAutoHide
+    Hide-Taskbar
+    [WinbridgeWindow]::ShowWindow($process.MainWindowHandle, $SW_RESTORE) | Out-Null
+    [WinbridgeWindow]::MoveWindow($process.MainWindowHandle, $Left, $Top, $Width, $Height, $true) | Out-Null
+    [WinbridgeWindow]::SetForegroundWindow($process.MainWindowHandle) | Out-Null
+    Log "KakaoTalk positioned at $Left,$Top ${Width}x${Height}."
+} catch {
+    Log "[FAIL] $($_.Exception.Message)"
+    exit 10
+}
+'@
+
+    Set-Content -Path $positionScriptPath -Value $positionScript -Encoding UTF8
+
+    $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+    Remove-ItemProperty -Path $runKey -Name 'KakaoTalk' -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path $runKey `
+        -Name 'WinbridgeOpenKakaoTalk' `
+        -Value "powershell.exe -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File `"$positionScriptPath`" *> `"C:\winbridge\position-kakaotalk-run.log`"" `
+        -Type String
+    Log "[OK] KakaoTalk foreground HKCU Run 등록: $positionScriptPath"
 } catch {
     FailWith 'KAKAO_AUTOSTART' $_.Exception.Message
 }

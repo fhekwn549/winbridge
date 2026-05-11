@@ -19,15 +19,10 @@ enum TrayAction {
         vm_ip: String,
         password: String,
     },
+    OpenFinished,
     Pause,
     Shutdown,
     Quit,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct LaunchCommand {
-    executable: std::path::PathBuf,
-    args: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +35,34 @@ enum ProcessSignalAction {
     QuitOnly,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StartProcessPolicy {
+    ExitWithLastWindow,
+    HoldTrayAfterWindowClose,
+}
+
+#[derive(Debug, Default)]
+struct TrayOpenGate {
+    in_progress: bool,
+}
+
+impl TrayOpenGate {
+    fn try_begin(&mut self) -> bool {
+        if self.in_progress {
+            return false;
+        }
+
+        self.in_progress = true;
+        true
+    }
+
+    fn finish(&mut self) {
+        self.in_progress = false;
+    }
+}
+
+type DisplayResolver = Arc<dyn Fn(cli::WindowMode) -> cli::DisplayStrategy>;
+
 fn rdp_window_close_action() -> RdpWindowCloseAction {
     RdpWindowCloseAction::CloseWindowOnly
 }
@@ -48,12 +71,109 @@ fn process_signal_action() -> ProcessSignalAction {
     ProcessSignalAction::QuitOnly
 }
 
+fn start_process_policy(mode: cli::WindowMode) -> StartProcessPolicy {
+    match mode {
+        cli::WindowMode::App => StartProcessPolicy::HoldTrayAfterWindowClose,
+        cli::WindowMode::Desktop => StartProcessPolicy::ExitWithLastWindow,
+    }
+}
+
 fn rdp_window_close_handler(action: RdpWindowCloseAction) -> Arc<dyn Fn() + Send + Sync> {
     match action {
         RdpWindowCloseAction::CloseWindowOnly => Arc::new(|| {
             tracing::debug!("RDP window closed; VM state left unchanged");
         }),
     }
+}
+
+fn spawn_tray_action_loop(
+    app: gtk4::Application,
+    cfg: Arc<config::WinbridgeConfig>,
+    manager: Arc<vm::VmManager>,
+    handle: tokio::runtime::Handle,
+    action_tx: async_channel::Sender<TrayAction>,
+    action_rx: async_channel::Receiver<TrayAction>,
+    display_resolver: DisplayResolver,
+) {
+    glib::MainContext::default().spawn_local(async move {
+        let mut open_gate = TrayOpenGate::default();
+
+        while let Ok(action) = action_rx.recv().await {
+            match action {
+                TrayAction::Open { mode } => {
+                    if !open_gate.try_begin() {
+                        tracing::debug!("RDP open request ignored while another open is pending");
+                        continue;
+                    }
+
+                    let cfg = cfg.clone();
+                    let manager = manager.clone();
+                    let handle = handle.clone();
+                    let action_tx = action_tx.clone();
+                    handle.spawn(async move {
+                        if let Err(err) = manager.ensure_active().await {
+                            tracing::error!("VM wake failed: {err}");
+                            let _ = action_tx.try_send(TrayAction::OpenFinished);
+                            return;
+                        }
+                        if let Err(err) = wait_for_rdp_ready(&cfg.vm_ip, &cfg.admin_password).await
+                        {
+                            tracing::error!("RDP readiness wait failed: {err}");
+                            let _ = action_tx.try_send(TrayAction::OpenFinished);
+                            return;
+                        }
+
+                        let _ = action_tx.try_send(TrayAction::OpenReady {
+                            mode,
+                            vm_ip: cfg.vm_ip.clone(),
+                            password: cfg.admin_password.clone(),
+                        });
+                    });
+                }
+                TrayAction::OpenReady {
+                    mode,
+                    vm_ip,
+                    password,
+                } => {
+                    if mode == cli::WindowMode::App {
+                        if let Some(window) = app.active_window() {
+                            window.present();
+                            open_gate.finish();
+                            continue;
+                        }
+                    }
+
+                    let on_close = rdp_window_close_handler(rdp_window_close_action());
+                    let options = rdp_window_options(mode, display_resolver(mode));
+
+                    if let Err(err) =
+                        rdp::RdpWindow::open(&app, &vm_ip, &password, options, on_close)
+                    {
+                        tracing::error!("RDP window open failed: {err}");
+                    }
+                    open_gate.finish();
+                }
+                TrayAction::OpenFinished => open_gate.finish(),
+                TrayAction::Pause => {
+                    let manager = manager.clone();
+                    handle.spawn(async move {
+                        if let Err(err) = manager.managed_save().await {
+                            tracing::error!("VM managed save failed: {err}");
+                        }
+                    });
+                }
+                TrayAction::Shutdown => {
+                    let manager = manager.clone();
+                    handle.spawn(async move {
+                        if let Err(err) = manager.graceful_shutdown(60).await {
+                            tracing::error!("VM shutdown failed: {err}");
+                        }
+                    });
+                }
+                TrayAction::Quit => app.quit(),
+            }
+        }
+    });
 }
 
 fn main() {
@@ -126,84 +246,22 @@ async fn run_tray() -> error::WinbridgeResult<()> {
     let handle = tokio::runtime::Handle::current();
     let (action_tx, action_rx) = async_channel::unbounded::<TrayAction>();
 
-    {
-        let app = app.clone();
-        let cfg = cfg.clone();
-        let manager = manager.clone();
-        let handle = handle.clone();
-        let action_tx = action_tx.clone();
-        glib::MainContext::default().spawn_local(async move {
-            while let Ok(action) = action_rx.recv().await {
-                match action {
-                    TrayAction::Open { mode } => {
-                        let cfg = cfg.clone();
-                        let manager = manager.clone();
-                        let handle = handle.clone();
-                        let action_tx = action_tx.clone();
-                        handle.spawn(async move {
-                            if let Err(err) = manager.ensure_active().await {
-                                tracing::error!("VM wake failed: {err}");
-                                return;
-                            }
-                            if let Err(err) =
-                                wait_for_rdp_ready(&cfg.vm_ip, &cfg.admin_password).await
-                            {
-                                tracing::error!("RDP readiness wait failed: {err}");
-                                return;
-                            }
-
-                            let _ = action_tx.try_send(TrayAction::OpenReady {
-                                mode,
-                                vm_ip: cfg.vm_ip.clone(),
-                                password: cfg.admin_password.clone(),
-                            });
-                        });
-                    }
-                    TrayAction::OpenReady {
-                        mode,
-                        vm_ip,
-                        password,
-                    } => {
-                        let on_close = rdp_window_close_handler(rdp_window_close_action());
-                        let display = match mode {
-                            cli::WindowMode::App => cli::DisplayStrategy::StableSlots,
-                            cli::WindowMode::Desktop => cli::DisplayStrategy::StableSlots,
-                        };
-                        let options = rdp_window_options(mode, display);
-
-                        if let Err(err) =
-                            rdp::RdpWindow::open(&app, &vm_ip, &password, options, on_close)
-                        {
-                            tracing::error!("RDP window open failed: {err}");
-                        }
-                    }
-                    TrayAction::Pause => {
-                        let manager = manager.clone();
-                        handle.spawn(async move {
-                            if let Err(err) = manager.managed_save().await {
-                                tracing::error!("VM managed save failed: {err}");
-                            }
-                        });
-                    }
-                    TrayAction::Shutdown => {
-                        let manager = manager.clone();
-                        handle.spawn(async move {
-                            if let Err(err) = manager.graceful_shutdown(60).await {
-                                tracing::error!("VM shutdown failed: {err}");
-                            }
-                        });
-                    }
-                    TrayAction::Quit => app.quit(),
-                }
-            }
-        });
-    }
+    spawn_tray_action_loop(
+        app.clone(),
+        cfg.clone(),
+        manager.clone(),
+        handle.clone(),
+        action_tx.clone(),
+        action_rx,
+        Arc::new(|_| cli::DisplayStrategy::StableSlots),
+    );
 
     let open_kakao: Arc<dyn Fn() + Send + Sync> = {
+        let action_tx = action_tx.clone();
         Arc::new(move || {
-            if let Err(err) = launch_kakaotalk_app() {
-                tracing::error!("KakaoTalk app launch failed: {err}");
-            }
+            let _ = action_tx.try_send(TrayAction::Open {
+                mode: cli::WindowMode::App,
+            });
         })
     };
 
@@ -276,9 +334,11 @@ async fn run_start(
     mode: cli::WindowMode,
     display: cli::DisplayStrategy,
 ) -> error::WinbridgeResult<()> {
-    let cfg = config::WinbridgeConfig::load()?;
-    let backend = vm::libvirt_backend::LibvirtBackendImpl::open(&cfg.libvirt_uri)?;
-    let manager = vm::VmManager::new(Arc::new(backend), cfg.vm_name.clone());
+    let cfg = Arc::new(config::WinbridgeConfig::load()?);
+    let backend = Arc::new(vm::libvirt_backend::LibvirtBackendImpl::open(
+        &cfg.libvirt_uri,
+    )?);
+    let manager = Arc::new(vm::VmManager::new(backend, cfg.vm_name.clone()));
     manager.ensure_active().await?;
     wait_for_rdp_ready(&cfg.vm_ip, &cfg.admin_password).await?;
 
@@ -288,8 +348,31 @@ async fn run_start(
     let handle = tokio::runtime::Handle::current();
     let vm_ip = cfg.vm_ip.clone();
     let password = cfg.admin_password.clone();
+    let start_policy = start_process_policy(mode);
+    let _app_hold = match start_policy {
+        StartProcessPolicy::HoldTrayAfterWindowClose => Some(app.hold()),
+        StartProcessPolicy::ExitWithLastWindow => None,
+    };
+    let (action_tx, action_rx) = async_channel::unbounded::<TrayAction>();
+
+    if start_policy == StartProcessPolicy::HoldTrayAfterWindowClose {
+        spawn_tray_action_loop(
+            app.clone(),
+            cfg.clone(),
+            manager.clone(),
+            handle.clone(),
+            action_tx.clone(),
+            action_rx,
+            Arc::new(move |_| display),
+        );
+    }
 
     app.connect_activate(move |app| {
+        if let Some(window) = app.active_window() {
+            window.present();
+            return;
+        }
+
         let _guard = handle.enter();
         let on_close = rdp_window_close_handler(rdp_window_close_action());
         let options = rdp_window_options(mode, display);
@@ -298,6 +381,58 @@ async fn run_start(
             tracing::error!("RDP window open failed: {err}");
         }
     });
+    let _kakaotalk_tray_handle = if start_policy == StartProcessPolicy::HoldTrayAfterWindowClose {
+        let action_tx = action_tx.clone();
+        Some(tray::spawn_kakaotalk_tray(tray::KakaoTalkTray {
+            on_open: Arc::new(move || {
+                let _ = action_tx.try_send(TrayAction::Open {
+                    mode: cli::WindowMode::App,
+                });
+            }),
+        }))
+    } else {
+        None
+    };
+    let _tray_handle = if start_policy == StartProcessPolicy::HoldTrayAfterWindowClose {
+        Some(tray::spawn_tray(tray::WinbridgeTray {
+            on_open_kakao: {
+                let action_tx = action_tx.clone();
+                Arc::new(move || {
+                    let _ = action_tx.try_send(TrayAction::Open {
+                        mode: cli::WindowMode::App,
+                    });
+                })
+            },
+            on_open_desktop: {
+                let action_tx = action_tx.clone();
+                Arc::new(move || {
+                    let _ = action_tx.try_send(TrayAction::Open {
+                        mode: cli::WindowMode::Desktop,
+                    });
+                })
+            },
+            on_pause: {
+                let action_tx = action_tx.clone();
+                Arc::new(move || {
+                    let _ = action_tx.try_send(TrayAction::Pause);
+                })
+            },
+            on_shutdown: {
+                let action_tx = action_tx.clone();
+                Arc::new(move || {
+                    let _ = action_tx.try_send(TrayAction::Shutdown);
+                })
+            },
+            on_quit: {
+                let action_tx = action_tx.clone();
+                Arc::new(move || {
+                    let _ = action_tx.try_send(TrayAction::Quit);
+                })
+            },
+        }))
+    } else {
+        None
+    };
     app.run_with_args(&["winbridge"]);
 
     Ok(())
@@ -307,28 +442,6 @@ fn gtk_application_id(mode: cli::WindowMode) -> &'static str {
     match mode {
         cli::WindowMode::App => desktop::KAKAOTALK_APPLICATION_ID,
         cli::WindowMode::Desktop => WINBRIDGE_APPLICATION_ID,
-    }
-}
-
-fn launch_kakaotalk_app() -> error::WinbridgeResult<()> {
-    let executable = std::env::current_exe()?;
-    let command = kakaotalk_launch_command(executable);
-    std::process::Command::new(&command.executable)
-        .args(&command.args)
-        .spawn()?;
-    Ok(())
-}
-
-fn kakaotalk_launch_command(executable: std::path::PathBuf) -> LaunchCommand {
-    LaunchCommand {
-        executable,
-        args: vec![
-            "start".to_string(),
-            "--mode".to_string(),
-            "app".to_string(),
-            "--display".to_string(),
-            "stable-slots".to_string(),
-        ],
     }
 }
 
@@ -506,6 +619,32 @@ mod tests {
     }
 
     #[test]
+    fn app_start_keeps_process_alive_as_tray_after_window_close() {
+        assert_eq!(
+            start_process_policy(cli::WindowMode::App),
+            StartProcessPolicy::HoldTrayAfterWindowClose
+        );
+    }
+
+    #[test]
+    fn desktop_start_exits_after_last_window_close() {
+        assert_eq!(
+            start_process_policy(cli::WindowMode::Desktop),
+            StartProcessPolicy::ExitWithLastWindow
+        );
+    }
+
+    #[test]
+    fn tray_open_gate_blocks_duplicate_open_until_finished() {
+        let mut gate = TrayOpenGate::default();
+
+        assert!(gate.try_begin());
+        assert!(!gate.try_begin());
+        gate.finish();
+        assert!(gate.try_begin());
+    }
+
+    #[test]
     fn desktop_experimental_multimon_uses_full_two_monitor_viewport() {
         let options = rdp_window_options(
             cli::WindowMode::Desktop,
@@ -536,27 +675,6 @@ mod tests {
         assert_eq!(
             gtk_application_id(cli::WindowMode::Desktop),
             "dev.winbridge.Winbridge"
-        );
-    }
-
-    #[test]
-    fn kakaotalk_launcher_uses_dedicated_app_process() {
-        let command =
-            kakaotalk_launch_command(std::path::PathBuf::from("/opt/winbridge/bin/winbridge"));
-
-        assert_eq!(
-            command.executable,
-            std::path::PathBuf::from("/opt/winbridge/bin/winbridge")
-        );
-        assert_eq!(
-            command.args,
-            vec![
-                "start".to_string(),
-                "--mode".to_string(),
-                "app".to_string(),
-                "--display".to_string(),
-                "stable-slots".to_string()
-            ]
         );
     }
 
