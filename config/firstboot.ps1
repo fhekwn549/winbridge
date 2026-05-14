@@ -96,8 +96,8 @@ try {
 param(
     [int]$Left = 0,
     [int]$Top = 0,
-    [int]$Width = 480,
-    [int]$Height = 680
+    [int]$Width = 960,
+    [int]$Height = 720
 )
 
 $ErrorActionPreference = 'Stop'
@@ -205,16 +205,6 @@ function Enable-TaskbarAutoHide {
     }
 }
 
-function Hide-Taskbar {
-    $SW_HIDE = 0
-    foreach ($className in @('Shell_TrayWnd', 'Shell_SecondaryTrayWnd')) {
-        $handle = [WinbridgeWindow]::FindWindow($className, $null)
-        if ($handle -ne [IntPtr]::Zero) {
-            [WinbridgeWindow]::ShowWindow($handle, $SW_HIDE) | Out-Null
-        }
-    }
-}
-
 try {
     Log 'position-kakaotalk.ps1 START'
     $process = Get-KakaoTalkMainProcess
@@ -235,7 +225,6 @@ try {
 
     $SW_RESTORE = 9
     Enable-TaskbarAutoHide
-    Hide-Taskbar
     [WinbridgeWindow]::ShowWindow($process.MainWindowHandle, $SW_RESTORE) | Out-Null
     [WinbridgeWindow]::MoveWindow($process.MainWindowHandle, $Left, $Top, $Width, $Height, $true) | Out-Null
     [WinbridgeWindow]::SetForegroundWindow($process.MainWindowHandle) | Out-Null
@@ -327,7 +316,33 @@ Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
     Log "[WARN] 데스크톱/작업표시줄 숨김 일부 실패: $($_.Exception.Message)"
 }
 
-# Step 9: status SUCCESS + 재부팅 예약
+# Step 9: Ubuntu host file share shortcut
+try {
+    $sharePath = '\\192.168.122.1\winbridge'
+    $shortcutTargets = @(
+        (Join-Path $env:USERPROFILE 'Desktop\WinbridgeShare.lnk'),
+        (Join-Path $env:USERPROFILE 'Links\WinbridgeShare.lnk'),
+        (Join-Path $env:APPDATA 'Microsoft\Windows\Network Shortcuts\WinbridgeShare.lnk')
+    )
+
+    $shell = New-Object -ComObject WScript.Shell
+    foreach ($shortcutPath in $shortcutTargets) {
+        $parent = Split-Path -Parent $shortcutPath
+        if (-not (Test-Path $parent)) {
+            New-Item -Path $parent -ItemType Directory -Force | Out-Null
+        }
+
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath = $sharePath
+        $shortcut.Description = 'Ubuntu WinbridgeShare'
+        $shortcut.Save()
+    }
+    Log "[OK] WinbridgeShare 바로가기 생성: $sharePath"
+} catch {
+    Log "[WARN] WinbridgeShare 바로가기 생성 실패: $($_.Exception.Message)"
+}
+
+# Step 10: status SUCCESS + 재부팅 예약
 # (SPICE guest tools 설치는 VirtIO PnP 미서명 컨펌으로 자동화 끊김 → P2B로 이관)
 'SUCCESS' | Out-File -FilePath $StatusPath -Encoding ascii -NoNewline
 Log "=== firstboot.ps1 SUCCESS, 30초 후 재부팅 ==="

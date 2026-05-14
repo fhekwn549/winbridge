@@ -32,7 +32,7 @@ enum RdpWindowCloseAction {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProcessSignalAction {
-    QuitOnly,
+    ManagedSaveThenQuit,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,7 +68,7 @@ fn rdp_window_close_action() -> RdpWindowCloseAction {
 }
 
 fn process_signal_action() -> ProcessSignalAction {
-    ProcessSignalAction::QuitOnly
+    ProcessSignalAction::ManagedSaveThenQuit
 }
 
 fn start_process_policy(mode: cli::WindowMode) -> StartProcessPolicy {
@@ -84,6 +84,42 @@ fn rdp_window_close_handler(action: RdpWindowCloseAction) -> Arc<dyn Fn() + Send
             tracing::debug!("RDP window closed; VM state left unchanged");
         }),
     }
+}
+
+async fn handle_process_signal_action(
+    action: ProcessSignalAction,
+    manager: Arc<vm::VmManager>,
+    action_tx: async_channel::Sender<TrayAction>,
+) {
+    match action {
+        ProcessSignalAction::ManagedSaveThenQuit => {
+            tracing::info!("saving VM before quitting winbridge after process signal");
+            if let Err(err) = manager.managed_save().await {
+                tracing::error!("VM managed save during process shutdown failed: {err}");
+            }
+        }
+    }
+
+    let _ = action_tx.try_send(TrayAction::Quit);
+}
+
+fn spawn_process_signal_handler(
+    manager: Arc<vm::VmManager>,
+    action_tx: async_channel::Sender<TrayAction>,
+) {
+    tokio::spawn(async move {
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("SIGTERM handler");
+        let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+            .expect("SIGINT handler");
+
+        tokio::select! {
+            _ = sigterm.recv() => tracing::info!("SIGTERM received"),
+            _ = sigint.recv() => tracing::info!("SIGINT received"),
+        }
+
+        handle_process_signal_action(process_signal_action(), manager, action_tx).await;
+    });
 }
 
 fn spawn_tray_action_loop(
@@ -264,9 +300,16 @@ async fn run_tray() -> error::WinbridgeResult<()> {
             });
         })
     };
+    let quit_winbridge: Arc<dyn Fn() + Send + Sync> = {
+        let action_tx = action_tx.clone();
+        Arc::new(move || {
+            let _ = action_tx.try_send(TrayAction::Quit);
+        })
+    };
 
     let _kakaotalk_tray_handle = tray::spawn_kakaotalk_tray(tray::KakaoTalkTray {
         on_open: open_kakao.clone(),
+        on_quit: quit_winbridge.clone(),
     });
 
     let _tray_handle = tray::spawn_tray(tray::WinbridgeTray {
@@ -291,40 +334,10 @@ async fn run_tray() -> error::WinbridgeResult<()> {
                 let _ = action_tx.try_send(TrayAction::Shutdown);
             })
         },
-        on_quit: {
-            let action_tx = action_tx.clone();
-            Arc::new(move || {
-                let _ = action_tx.try_send(TrayAction::Quit);
-            })
-        },
+        on_quit: quit_winbridge,
     });
 
-    {
-        let action_tx = action_tx.clone();
-        tokio::spawn(async move {
-            let mut sigterm =
-                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                    .expect("SIGTERM handler");
-            let mut sigint =
-                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
-                    .expect("SIGINT handler");
-
-            tokio::select! {
-                _ = sigterm.recv() => tracing::info!("SIGTERM received"),
-                _ = sigint.recv() => tracing::info!("SIGINT received"),
-            }
-
-            match process_signal_action() {
-                ProcessSignalAction::QuitOnly => {
-                    tracing::debug!(
-                        "winbridge process signal quits tray without changing VM state"
-                    );
-                }
-            }
-
-            let _ = action_tx.try_send(TrayAction::Quit);
-        });
-    }
+    spawn_process_signal_handler(manager, action_tx);
 
     app.run_with_args(&["winbridge"]);
     Ok(())
@@ -355,17 +368,16 @@ async fn run_start(
     };
     let (action_tx, action_rx) = async_channel::unbounded::<TrayAction>();
 
-    if start_policy == StartProcessPolicy::HoldTrayAfterWindowClose {
-        spawn_tray_action_loop(
-            app.clone(),
-            cfg.clone(),
-            manager.clone(),
-            handle.clone(),
-            action_tx.clone(),
-            action_rx,
-            Arc::new(move |_| display),
-        );
-    }
+    spawn_tray_action_loop(
+        app.clone(),
+        cfg.clone(),
+        manager.clone(),
+        handle.clone(),
+        action_tx.clone(),
+        action_rx,
+        Arc::new(move |_| display),
+    );
+    spawn_process_signal_handler(manager, action_tx.clone());
 
     app.connect_activate(move |app| {
         if let Some(window) = app.active_window() {
@@ -383,11 +395,15 @@ async fn run_start(
     });
     let _kakaotalk_tray_handle = if start_policy == StartProcessPolicy::HoldTrayAfterWindowClose {
         let action_tx = action_tx.clone();
+        let quit_action_tx = action_tx.clone();
         Some(tray::spawn_kakaotalk_tray(tray::KakaoTalkTray {
             on_open: Arc::new(move || {
                 let _ = action_tx.try_send(TrayAction::Open {
                     mode: cli::WindowMode::App,
                 });
+            }),
+            on_quit: Arc::new(move || {
+                let _ = quit_action_tx.try_send(TrayAction::Quit);
             }),
         }))
     } else {
@@ -567,9 +583,11 @@ fn run_install_desktop_entry(exec: Option<std::path::PathBuf>) -> error::Winbrid
     let installed = desktop::install_kakaotalk_desktop_entry(&executable)?;
 
     println!(
-        "KakaoTalk desktop entry installed:\n  {}\n  {}",
+        "KakaoTalk desktop entry installed:\n  {}\n  {}\n  {}\n  {}",
         installed.desktop_entry_path.display(),
-        installed.icon_path.display()
+        installed.icon_path.display(),
+        installed.command_path.display(),
+        installed.autostart_entry_path.display()
     );
     Ok(())
 }
@@ -604,6 +622,40 @@ fn init_logging(verbose: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct SignalTestBackend {
+        managed_save_calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl vm::backend::LibvirtBackend for SignalTestBackend {
+        async fn state(&self, _vm_name: &str) -> error::WinbridgeResult<vm::VmState> {
+            Ok(vm::VmState::Off)
+        }
+
+        async fn start(&self, _vm_name: &str) -> error::WinbridgeResult<()> {
+            Ok(())
+        }
+
+        async fn resume_from_saved(&self, _vm_name: &str) -> error::WinbridgeResult<()> {
+            Ok(())
+        }
+
+        async fn managed_save(&self, _vm_name: &str) -> error::WinbridgeResult<()> {
+            self.managed_save_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        async fn shutdown(&self, _vm_name: &str) -> error::WinbridgeResult<()> {
+            Ok(())
+        }
+
+        async fn destroy(&self, _vm_name: &str) -> error::WinbridgeResult<()> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn rdp_window_close_keeps_vm_running_for_mvp_testing() {
@@ -614,8 +666,27 @@ mod tests {
     }
 
     #[test]
-    fn process_signal_keeps_vm_running_for_background_tray() {
-        assert_eq!(process_signal_action(), ProcessSignalAction::QuitOnly);
+    fn process_signal_saves_vm_before_quitting_for_host_shutdown() {
+        assert_eq!(
+            process_signal_action(),
+            ProcessSignalAction::ManagedSaveThenQuit
+        );
+    }
+
+    #[tokio::test]
+    async fn process_signal_handler_managed_saves_then_sends_quit() {
+        let managed_save_calls = Arc::new(AtomicUsize::new(0));
+        let backend = SignalTestBackend {
+            managed_save_calls: managed_save_calls.clone(),
+        };
+        let manager = Arc::new(vm::VmManager::new(Arc::new(backend), "test-vm"));
+        let (action_tx, action_rx) = async_channel::bounded(1);
+
+        handle_process_signal_action(ProcessSignalAction::ManagedSaveThenQuit, manager, action_tx)
+            .await;
+
+        assert_eq!(managed_save_calls.load(Ordering::SeqCst), 1);
+        assert!(matches!(action_rx.try_recv().unwrap(), TrayAction::Quit));
     }
 
     #[test]

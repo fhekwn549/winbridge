@@ -125,8 +125,46 @@ else
     log_info "  build/ 부재, skip"
 fi
 
-# 7. Credentials (선택)
-log_info "7. 자격 증명..."
+# 7. Desktop launcher + terminal command
+log_info "7. desktop launcher..."
+DESKTOP_ENTRY="$HOME/.local/share/applications/dev.winbridge.KakaoTalk.desktop"
+ICON_FILE="$HOME/.local/share/icons/hicolor/256x256/apps/winbridge-kakaotalk.png"
+COMMAND_FILE="$HOME/.local/bin/kakaotalk"
+AUTOSTART_ENTRY="$HOME/.config/autostart/dev.winbridge.KakaoTalk.desktop"
+for path in "$DESKTOP_ENTRY" "$ICON_FILE" "$COMMAND_FILE" "$AUTOSTART_ENTRY"; do
+    if [ -e "$path" ]; then
+        rm -f "$path"
+        log_info "  제거: $path"
+    else
+        log_info "  부재, skip: $path"
+    fi
+done
+
+# 8. Samba file share (선택)
+log_info "8. Samba file share..."
+SMB_CONF=/etc/samba/smb.conf
+if [ -f "$SMB_CONF" ] && sudo grep -q '^# winbridge-share:BEGIN$' "$SMB_CONF" 2>/dev/null; then
+    if confirm "  $SMB_CONF의 winbridge file share 블록 제거?"; then
+        tmp_conf=$(mktemp)
+        sudo awk '
+            /^# winbridge-share:BEGIN$/ { skip = 1; next }
+            /^# winbridge-share:END$/ { skip = 0; next }
+            skip != 1 { print }
+        ' "$SMB_CONF" > "$tmp_conf"
+        sudo install -m 644 "$tmp_conf" "$SMB_CONF"
+        rm -f "$tmp_conf"
+        sudo testparm -s "$SMB_CONF" >/dev/null 2>&1 || log_warn "  smb.conf 검증 실패. 수동 확인 필요"
+        sudo systemctl reload smbd 2>/dev/null || sudo service smbd reload 2>/dev/null || true
+        log_info "  Samba winbridge share 블록 제거"
+    else
+        log_info "  Samba share keep (사용자 선택)"
+    fi
+else
+    log_info "  Samba winbridge share 블록 부재, skip"
+fi
+
+# 9. Credentials (선택)
+log_info "9. 자격 증명..."
 if [ -f "$HOME/.config/winbridge/credentials" ]; then
     if confirm "  자격 증명 (~/.config/winbridge/credentials) 삭제? 재설치 시 새 random 비밀번호"; then
         rm -rf "$HOME/.config/winbridge"

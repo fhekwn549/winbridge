@@ -314,8 +314,8 @@ impl RdpWindowOptions {
     pub fn kakaotalk_app() -> Self {
         Self {
             title: "KakaoTalk".to_string(),
-            viewport: RdpViewport::new(0, 0, 480, 680),
-            desktop_size: RdpDesktopSize::new(480, 680),
+            viewport: RdpViewport::new(0, 0, 960, 720),
+            desktop_size: RdpDesktopSize::new(960, 720),
             virtual_desktop_layout: None,
             display_strategy: RdpDisplayStrategy::StableSlots,
         }
@@ -1098,15 +1098,13 @@ fn input_event_to_fastpath_in_viewport(
 
     match event {
         InputEvent::KeyPress {
-            keyval, keycode, ..
-        } => keyboard_event(*keyval, *keycode, false)
-            .into_iter()
-            .collect(),
+            keyval,
+            keycode,
+            modifiers,
+        } => keyboard_events(*keyval, *keycode, *modifiers, false),
         InputEvent::KeyRelease {
             keyval, keycode, ..
-        } => keyboard_event(*keyval, *keycode, true)
-            .into_iter()
-            .collect(),
+        } => keyboard_events(*keyval, *keycode, 0, true),
         InputEvent::MouseMove {
             x,
             y,
@@ -1261,6 +1259,77 @@ fn keyboard_event(
     Some(FastPathInputEvent::KeyboardEvent(flags, scan_code))
 }
 
+fn keyboard_events(
+    keyval: u32,
+    keycode: u32,
+    modifiers: u32,
+    release: bool,
+) -> Vec<ironrdp_pdu::input::fast_path::FastPathInputEvent> {
+    let mut events = Vec::new();
+    if !release && !is_modifier_keyval(keyval) {
+        events.extend(modifier_release_events_for_state(modifiers));
+    }
+    if let Some(event) = keyboard_event(keyval, keycode, release) {
+        events.push(event);
+    }
+    events
+}
+
+fn modifier_release_events_for_state(
+    modifiers: u32,
+) -> Vec<ironrdp_pdu::input::fast_path::FastPathInputEvent> {
+    let state = gtk::gdk::ModifierType::from_bits_truncate(modifiers);
+    let mut events = Vec::new();
+
+    if !state.contains(gtk::gdk::ModifierType::SHIFT_MASK) {
+        events.extend([
+            keyboard_release_event(0x2a, false),
+            keyboard_release_event(0x36, false),
+        ]);
+    }
+    if !state.contains(gtk::gdk::ModifierType::CONTROL_MASK) {
+        events.extend([
+            keyboard_release_event(0x1d, false),
+            keyboard_release_event(0x1d, true),
+        ]);
+    }
+    if !state.contains(gtk::gdk::ModifierType::ALT_MASK) {
+        events.extend([
+            keyboard_release_event(0x38, false),
+            keyboard_release_event(0x38, true),
+        ]);
+    }
+    if !state.contains(gtk::gdk::ModifierType::SUPER_MASK) {
+        events.extend([
+            keyboard_release_event(0x5b, true),
+            keyboard_release_event(0x5c, true),
+        ]);
+    }
+
+    events
+}
+
+fn keyboard_release_event(
+    scan_code: u8,
+    extended: bool,
+) -> ironrdp_pdu::input::fast_path::FastPathInputEvent {
+    use ironrdp_pdu::input::fast_path::{FastPathInputEvent, KeyboardFlags};
+
+    let mut flags = KeyboardFlags::RELEASE;
+    if extended {
+        flags |= KeyboardFlags::EXTENDED;
+    }
+
+    FastPathInputEvent::KeyboardEvent(flags, scan_code)
+}
+
+fn is_modifier_keyval(keyval: u32) -> bool {
+    matches!(
+        keyval,
+        0xffe1 | 0xffe2 | 0xffe3 | 0xffe4 | 0xffe9 | 0xffea | 0xffeb | 0xffec
+    )
+}
+
 fn keyval_to_scancode(keyval: u32) -> Option<(u8, bool)> {
     if let Some(ch) = char::from_u32(keyval).map(|ch| ch.to_ascii_lowercase()) {
         if let Some(scan_code) = ascii_key_to_scancode(ch) {
@@ -1269,15 +1338,15 @@ fn keyval_to_scancode(keyval: u32) -> Option<(u8, bool)> {
     }
 
     let scan_code = match keyval {
-        0xff08 => 0x0e, // BackSpace
-        0xff09 => 0x0f, // Tab
-        0xff0d => 0x1c, // Return
-        0xff1b => 0x01, // Escape
-        0xffe1 => 0x2a, // Shift_L
-        0xffe2 => 0x36, // Shift_R
-        0xffe3 => 0x1d, // Control_L
-        0xffe9 => 0x38, // Alt_L
-        0xffe5 => 0x3a, // Caps_Lock
+        0x08 | 0xff08 => 0x0e, // BackSpace
+        0x09 | 0xff09 => 0x0f, // Tab
+        0x0d | 0xff0d => 0x1c, // Return
+        0x1b | 0xff1b => 0x01, // Escape
+        0xffe1 => 0x2a,        // Shift_L
+        0xffe2 => 0x36,        // Shift_R
+        0xffe3 => 0x1d,        // Control_L
+        0xffe9 => 0x38,        // Alt_L
+        0xffe5 => 0x3a,        // Caps_Lock
         0xffbe..=0xffc7 => 0x3b + u8::try_from(keyval - 0xffbe).ok()?,
         0xffc8 => 0x57, // F11
         0xffc9 => 0x58, // F12
@@ -1453,21 +1522,21 @@ mod tests {
     }
 
     #[test]
-    fn app_mode_uses_compact_single_desktop_for_app_window() {
+    fn app_mode_uses_file_dialog_sized_single_desktop_for_app_window() {
         let options = RdpWindowOptions::kakaotalk_app();
 
         assert_eq!(options.title, "KakaoTalk");
         assert_eq!(options.display_strategy, RdpDisplayStrategy::StableSlots);
         assert_eq!(options.virtual_desktop_layout, None);
-        assert_eq!(options.initial_desktop_size(), (480, 680));
-        assert_eq!(options.initial_window_size(), (480, 680));
+        assert_eq!(options.initial_desktop_size(), (960, 720));
+        assert_eq!(options.initial_window_size(), (960, 720));
         assert_eq!(
             options.viewport,
             RdpViewport {
                 left: 0,
                 top: 0,
-                width: 480,
-                height: 680,
+                width: 960,
+                height: 720,
             }
         );
     }
@@ -1486,8 +1555,8 @@ mod tests {
             RdpViewport {
                 left: 0,
                 top: 0,
-                width: 480,
-                height: 680,
+                width: 960,
+                height: 720,
             }
         );
         assert_eq!(options.virtual_desktop_layout, None);
@@ -1527,6 +1596,8 @@ mod tests {
         assert_eq!(keyval_to_scancode(u32::from('a')), Some((0x1e, false)));
         assert_eq!(keyval_to_scancode(u32::from('A')), Some((0x1e, false)));
         assert_eq!(keyval_to_scancode(u32::from('?')), Some((0x35, false)));
+        assert_eq!(keyval_to_scancode(0x08), Some((0x0e, false)));
+        assert_eq!(keyval_to_scancode(0xff08), Some((0x0e, false)));
         assert_eq!(keyval_to_scancode(0xff51), Some((0x4b, true)));
         assert_eq!(keyval_to_scancode(0xff31), Some((0x38, true)));
         assert_eq!(keyval_to_scancode(0xff34), Some((0x1d, true)));
@@ -1540,6 +1611,57 @@ mod tests {
         assert_eq!(keyval_to_scancode(0xffe4), Some((0x1d, true))); // Control_R
         assert_eq!(keyval_to_scancode(0xffe9), Some((0x38, false))); // Alt_L
         assert_eq!(keyval_to_scancode(0xffea), Some((0x38, true))); // Alt_R
+    }
+
+    #[test]
+    fn key_press_releases_stale_modifiers_before_backspace() {
+        use ironrdp_pdu::input::fast_path::{FastPathInputEvent, KeyboardFlags};
+
+        let events = input_event_to_fastpath(
+            &InputEvent::KeyPress {
+                keyval: 0xff08,
+                keycode: 22,
+                modifiers: 0,
+            },
+            1280,
+            720,
+        );
+
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                FastPathInputEvent::KeyboardEvent(flags, 0x1d)
+                    if flags.contains(KeyboardFlags::RELEASE)
+            )
+        }));
+        assert!(matches!(
+            events.last(),
+            Some(FastPathInputEvent::KeyboardEvent(flags, 0x0e))
+                if !flags.contains(KeyboardFlags::RELEASE)
+        ));
+    }
+
+    #[test]
+    fn key_press_preserves_current_control_modifier() {
+        use ironrdp_pdu::input::fast_path::FastPathInputEvent;
+
+        let events = input_event_to_fastpath(
+            &InputEvent::KeyPress {
+                keyval: u32::from('v'),
+                keycode: 55,
+                modifiers: gtk::gdk::ModifierType::CONTROL_MASK.bits(),
+            },
+            1280,
+            720,
+        );
+
+        assert!(!events
+            .iter()
+            .any(|event| { matches!(event, FastPathInputEvent::KeyboardEvent(_, 0x1d)) }));
+        assert!(matches!(
+            events.last(),
+            Some(FastPathInputEvent::KeyboardEvent(_, 0x2f))
+        ));
     }
 
     #[test]

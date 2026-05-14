@@ -1,8 +1,8 @@
 param(
     [int]$Left = 0,
     [int]$Top = 0,
-    [int]$Width = 480,
-    [int]$Height = 680
+    [int]$Width = 960,
+    [int]$Height = 720
 )
 
 $ErrorActionPreference = 'Stop'
@@ -103,16 +103,6 @@ function Enable-TaskbarAutoHide {
     }
 }
 
-function Hide-Taskbar {
-    $SW_HIDE = 0
-    foreach ($className in @('Shell_TrayWnd', 'Shell_SecondaryTrayWnd')) {
-        $handle = [WinbridgeWindow]::FindWindow($className, $null)
-        if ($handle -ne [IntPtr]::Zero) {
-            [WinbridgeWindow]::ShowWindow($handle, $SW_HIDE) | Out-Null
-        }
-    }
-}
-
 $process = Get-KakaoTalkMainProcess
 if (-not $process) {
     $kakaoExe = Find-KakaoTalkExe
@@ -131,7 +121,6 @@ if (-not $process -or $process.MainWindowHandle -eq 0) {
 
 $SW_RESTORE = 9
 Enable-TaskbarAutoHide
-Hide-Taskbar
 [WinbridgeWindow]::ShowWindow($process.MainWindowHandle, $SW_RESTORE) | Out-Null
 [WinbridgeWindow]::MoveWindow($process.MainWindowHandle, $Left, $Top, $Width, $Height, $true) | Out-Null
 [WinbridgeWindow]::SetForegroundWindow($process.MainWindowHandle) | Out-Null

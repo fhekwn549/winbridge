@@ -13,6 +13,7 @@ pub struct WinbridgeTray {
 
 pub struct KakaoTalkTray {
     pub on_open: Arc<dyn Fn() + Send + Sync>,
+    pub on_quit: Arc<dyn Fn() + Send + Sync>,
 }
 
 impl Tray for WinbridgeTray {
@@ -87,12 +88,21 @@ impl Tray for KakaoTalkTray {
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
-        vec![StandardItem {
-            label: "Open KakaoTalk".to_string(),
-            activate: Box::new(|tray: &mut Self| (tray.on_open)()),
-            ..Default::default()
-        }
-        .into()]
+        vec![
+            StandardItem {
+                label: "Open KakaoTalk".to_string(),
+                activate: Box::new(|tray: &mut Self| (tray.on_open)()),
+                ..Default::default()
+            }
+            .into(),
+            MenuItem::Separator,
+            StandardItem {
+                label: "Quit winbridge".to_string(),
+                activate: Box::new(|tray: &mut Self| (tray.on_quit)()),
+                ..Default::default()
+            }
+            .into(),
+        ]
     }
 }
 
@@ -136,6 +146,7 @@ mod tests {
     fn kakaotalk_tray_uses_dedicated_icon_and_title() {
         let tray = KakaoTalkTray {
             on_open: Arc::new(|| {}),
+            on_quit: Arc::new(|| {}),
         };
 
         assert_eq!(tray.icon_name(), "winbridge-kakaotalk");
@@ -143,5 +154,23 @@ mod tests {
         assert_eq!(tray.id(), "winbridge-kakaotalk");
         assert_eq!(tray.category(), ksni::Category::Communications);
         assert!(!tray.icon_pixmap().is_empty());
+    }
+
+    #[test]
+    fn kakaotalk_tray_menu_can_quit_winbridge() {
+        let tray = KakaoTalkTray {
+            on_open: Arc::new(|| {}),
+            on_quit: Arc::new(|| {}),
+        };
+        let labels: Vec<_> = tray
+            .menu()
+            .into_iter()
+            .filter_map(|item| match item {
+                MenuItem::Standard(item) => Some(item.label),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(labels, vec!["Open KakaoTalk", "Quit winbridge"]);
     }
 }

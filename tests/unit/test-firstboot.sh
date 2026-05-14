@@ -4,10 +4,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 FIRSTBOOT="$REPO_ROOT/config/firstboot.ps1"
+POSITION_SCRIPT="$REPO_ROOT/scripts/windows/position-kakaotalk.ps1"
 
 [ -f "$FIRSTBOOT" ] || { echo "FAIL: firstboot.ps1 missing"; exit 1; }
+[ -f "$POSITION_SCRIPT" ] || { echo "FAIL: position-kakaotalk.ps1 missing"; exit 1; }
 
 content=$(<"$FIRSTBOOT")
+position_content=$(<"$POSITION_SCRIPT")
 
 case "$content" in
     *"C:\\winbridge\\position-kakaotalk.ps1"*|*"C:\winbridge\position-kakaotalk.ps1"*) ;;
@@ -35,9 +38,28 @@ case "$content" in
 esac
 
 case "$content" in
-    *"function Hide-Taskbar"* ) ;;
-    *) echo "FAIL: foreground KakaoTalk launcher does not hide the taskbar on each run"; exit 1 ;;
+    *"function Hide-Taskbar"*|*"ShowWindow(\$handle, \$SW_HIDE)"*)
+        echo "FAIL: foreground KakaoTalk launcher still force-hides the taskbar"
+        exit 1
+        ;;
 esac
+
+case "$position_content" in
+    *"function Hide-Taskbar"*|*"ShowWindow(\$handle, \$SW_HIDE)"*)
+        echo "FAIL: standalone position-kakaotalk.ps1 still force-hides the taskbar"
+        exit 1
+        ;;
+esac
+
+case "$position_content" in
+    *"[int]\$Width = 960"*"[int]\$Height = 720"* ) ;;
+    *) echo "FAIL: standalone position-kakaotalk.ps1 does not use the current app window size"; exit 1 ;;
+esac
+
+echo "$content" | grep -q "WinbridgeShare" \
+    || { echo "FAIL: firstboot does not create a WinbridgeShare shortcut"; exit 1; }
+echo "$content" | grep -q "\\\\\\\\192.168.122.1\\\\winbridge" \
+    || { echo "FAIL: firstboot shortcut does not point at the default SMB share"; exit 1; }
 
 case "$content" in
     *"KakaoTalk HKCU Run 등록"*) echo "FAIL: firstboot still documents raw KakaoTalk autostart"; exit 1 ;;
