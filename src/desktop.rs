@@ -1,4 +1,6 @@
 use crate::error::{WinbridgeError, WinbridgeResult};
+use image::ImageFormat;
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 pub const KAKAOTALK_APPLICATION_ID: &str = "dev.winbridge.KakaoTalk";
@@ -100,7 +102,7 @@ pub fn install_kakaotalk_desktop_entry_in(
         &desktop_entry_path,
         kakaotalk_desktop_entry(winbridge_executable),
     )?;
-    std::fs::write(&icon_path, KAKAOTALK_ICON_PNG)?;
+    std::fs::write(&icon_path, installed_kakaotalk_icon_png()?)?;
     std::fs::write(&command_path, kakaotalk_command(winbridge_executable))?;
     set_executable(&command_path)?;
     std::fs::write(
@@ -135,6 +137,17 @@ fn quote_exec_path(path: &Path) -> String {
 
 fn shell_quote_path(path: &Path) -> String {
     format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
+}
+
+pub(crate) fn installed_kakaotalk_icon_png() -> WinbridgeResult<Vec<u8>> {
+    let image = image::load_from_memory(KAKAOTALK_ICON_PNG)
+        .map_err(|err| WinbridgeError::Other(anyhow::anyhow!("아이콘 PNG 로드 실패: {err}")))?
+        .resize_exact(256, 256, image::imageops::FilterType::Lanczos3);
+    let mut bytes = Cursor::new(Vec::new());
+    image
+        .write_to(&mut bytes, ImageFormat::Png)
+        .map_err(|err| WinbridgeError::Other(anyhow::anyhow!("아이콘 PNG 변환 실패: {err}")))?;
+    Ok(bytes.into_inner())
 }
 
 #[cfg(unix)]
@@ -230,5 +243,24 @@ mod tests {
         );
         let autostart = std::fs::read_to_string(installed.autostart_entry_path).unwrap();
         assert!(autostart.contains("X-GNOME-Autostart-enabled=true"));
+    }
+
+    #[test]
+    fn installer_writes_real_256px_icon_for_hicolor_theme() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data_local_dir = tmp.path().join("share");
+        let config_dir = tmp.path().join("config");
+        let executable_dir = tmp.path().join("bin");
+        let installed = install_kakaotalk_desktop_entry_in(
+            &data_local_dir,
+            &config_dir,
+            Some(&executable_dir),
+            Path::new("/opt/winbridge/bin/winbridge"),
+        )
+        .unwrap();
+
+        let icon = image::open(installed.icon_path).unwrap();
+        assert_eq!(icon.width(), 256);
+        assert_eq!(icon.height(), 256);
     }
 }

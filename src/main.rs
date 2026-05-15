@@ -10,6 +10,7 @@ const RDP_READY_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const RDP_HANDSHAKE_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(15);
 const WINBRIDGE_APPLICATION_ID: &str = "dev.winbridge.Winbridge";
 
+#[derive(Debug, PartialEq, Eq)]
 enum TrayAction {
     Open {
         mode: cli::WindowMode,
@@ -22,6 +23,7 @@ enum TrayAction {
     OpenFinished,
     Pause,
     Shutdown,
+    ManagedSaveThenQuit,
     Quit,
 }
 
@@ -71,6 +73,10 @@ fn process_signal_action() -> ProcessSignalAction {
     ProcessSignalAction::ManagedSaveThenQuit
 }
 
+fn tray_quit_action() -> TrayAction {
+    TrayAction::ManagedSaveThenQuit
+}
+
 fn start_process_policy(mode: cli::WindowMode) -> StartProcessPolicy {
     match mode {
         cli::WindowMode::App => StartProcessPolicy::HoldTrayAfterWindowClose,
@@ -93,13 +99,20 @@ async fn handle_process_signal_action(
 ) {
     match action {
         ProcessSignalAction::ManagedSaveThenQuit => {
-            tracing::info!("saving VM before quitting winbridge after process signal");
-            if let Err(err) = manager.managed_save().await {
-                tracing::error!("VM managed save during process shutdown failed: {err}");
-            }
+            handle_managed_save_then_quit(manager, action_tx, "after process signal").await;
         }
     }
+}
 
+async fn handle_managed_save_then_quit(
+    manager: Arc<vm::VmManager>,
+    action_tx: async_channel::Sender<TrayAction>,
+    reason: &'static str,
+) {
+    tracing::info!("saving VM before quitting winbridge {reason}");
+    if let Err(err) = manager.managed_save().await {
+        tracing::error!("VM managed save before quitting winbridge failed: {err}");
+    }
     let _ = action_tx.try_send(TrayAction::Quit);
 }
 
@@ -206,6 +219,13 @@ fn spawn_tray_action_loop(
                         }
                     });
                 }
+                TrayAction::ManagedSaveThenQuit => {
+                    let manager = manager.clone();
+                    let action_tx = action_tx.clone();
+                    handle.spawn(async move {
+                        handle_managed_save_then_quit(manager, action_tx, "after tray quit").await;
+                    });
+                }
                 TrayAction::Quit => app.quit(),
             }
         }
@@ -303,7 +323,7 @@ async fn run_tray() -> error::WinbridgeResult<()> {
     let quit_winbridge: Arc<dyn Fn() + Send + Sync> = {
         let action_tx = action_tx.clone();
         Arc::new(move || {
-            let _ = action_tx.try_send(TrayAction::Quit);
+            let _ = action_tx.try_send(tray_quit_action());
         })
     };
 
@@ -403,7 +423,7 @@ async fn run_start(
                 });
             }),
             on_quit: Arc::new(move || {
-                let _ = quit_action_tx.try_send(TrayAction::Quit);
+                let _ = quit_action_tx.try_send(tray_quit_action());
             }),
         }))
     } else {
@@ -442,7 +462,7 @@ async fn run_start(
             on_quit: {
                 let action_tx = action_tx.clone();
                 Arc::new(move || {
-                    let _ = action_tx.try_send(TrayAction::Quit);
+                    let _ = action_tx.try_send(tray_quit_action());
                 })
             },
         }))
@@ -673,6 +693,11 @@ mod tests {
         );
     }
 
+    #[test]
+    fn tray_quit_saves_vm_before_quitting() {
+        assert_eq!(tray_quit_action(), TrayAction::ManagedSaveThenQuit);
+    }
+
     #[tokio::test]
     async fn process_signal_handler_managed_saves_then_sends_quit() {
         let managed_save_calls = Arc::new(AtomicUsize::new(0));
@@ -684,6 +709,21 @@ mod tests {
 
         handle_process_signal_action(ProcessSignalAction::ManagedSaveThenQuit, manager, action_tx)
             .await;
+
+        assert_eq!(managed_save_calls.load(Ordering::SeqCst), 1);
+        assert!(matches!(action_rx.try_recv().unwrap(), TrayAction::Quit));
+    }
+
+    #[tokio::test]
+    async fn managed_save_then_quit_sends_quit_after_save() {
+        let managed_save_calls = Arc::new(AtomicUsize::new(0));
+        let backend = SignalTestBackend {
+            managed_save_calls: managed_save_calls.clone(),
+        };
+        let manager = Arc::new(vm::VmManager::new(Arc::new(backend), "test-vm"));
+        let (action_tx, action_rx) = async_channel::bounded(1);
+
+        handle_managed_save_then_quit(manager, action_tx, "from test").await;
 
         assert_eq!(managed_save_calls.load(Ordering::SeqCst), 1);
         assert!(matches!(action_rx.try_recv().unwrap(), TrayAction::Quit));

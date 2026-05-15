@@ -53,7 +53,7 @@ impl Tray for WinbridgeTray {
             .into(),
             MenuItem::Separator,
             StandardItem {
-                label: "Quit winbridge".to_string(),
+                label: "Pause VM and Quit winbridge".to_string(),
                 activate: Box::new(|tray: &mut Self| (tray.on_quit)()),
                 ..Default::default()
             }
@@ -72,7 +72,7 @@ impl Tray for KakaoTalkTray {
     }
 
     fn icon_name(&self) -> String {
-        desktop::KAKAOTALK_ICON_NAME.to_string()
+        String::new()
     }
 
     fn icon_pixmap(&self) -> Vec<Icon> {
@@ -97,7 +97,7 @@ impl Tray for KakaoTalkTray {
             .into(),
             MenuItem::Separator,
             StandardItem {
-                label: "Quit winbridge".to_string(),
+                label: "Pause VM and Quit winbridge".to_string(),
                 activate: Box::new(|tray: &mut Self| (tray.on_quit)()),
                 ..Default::default()
             }
@@ -149,7 +149,7 @@ mod tests {
             on_quit: Arc::new(|| {}),
         };
 
-        assert_eq!(tray.icon_name(), "winbridge-kakaotalk");
+        assert_eq!(tray.icon_name(), "");
         assert_eq!(tray.title(), "KakaoTalk");
         assert_eq!(tray.id(), "winbridge-kakaotalk");
         assert_eq!(tray.category(), ksni::Category::Communications);
@@ -171,6 +171,9 @@ mod tests {
             })
             .collect();
 
-        assert_eq!(labels, vec!["Open KakaoTalk", "Quit winbridge"]);
+        assert_eq!(
+            labels,
+            vec!["Open KakaoTalk", "Pause VM and Quit winbridge"]
+        );
     }
 }
