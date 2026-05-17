@@ -2,7 +2,8 @@ param(
     [int]$Left = 0,
     [int]$Top = 0,
     [int]$Width = 960,
-    [int]$Height = 720
+    [int]$Height = 720,
+    [switch]$Restart
 )
 
 $ErrorActionPreference = 'Stop'
@@ -80,6 +81,11 @@ function Wait-KakaoTalkMainProcess {
     return $null
 }
 
+function Stop-KakaoTalkProcesses {
+    Get-Process -Name 'KakaoTalk' -ErrorAction SilentlyContinue |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+}
+
 function Enable-TaskbarAutoHide {
     $advanced = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
     if (-not (Test-Path $advanced)) {
@@ -101,6 +107,11 @@ function Enable-TaskbarAutoHide {
             Set-ItemProperty -Path $key -Name Settings -Value $settings -Force
         }
     }
+}
+
+if ($Restart) {
+    Stop-KakaoTalkProcesses
+    Start-Sleep -Milliseconds 500
 }
 
 $process = Get-KakaoTalkMainProcess

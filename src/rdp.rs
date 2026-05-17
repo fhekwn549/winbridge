@@ -4,9 +4,12 @@ use gtk4 as gtk;
 use gtk4::prelude::*;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 type RdpTlsStream = tokio_rustls::client::TlsStream<tokio::net::TcpStream>;
 type RdpFramed = ironrdp_tokio::TokioFramed<RdpTlsStream>;
+const RDP_RECONNECT_ATTEMPTS: usize = 3;
+const RDP_RECONNECT_DELAY: Duration = Duration::from_secs(2);
 
 struct RdpSessionConnection {
     connection_result: ironrdp::connector::ConnectionResult,
@@ -591,7 +594,7 @@ impl RdpWindow {
         let vm_ip = vm_ip.to_string();
         let password = password.to_string();
         tokio::spawn(async move {
-            if let Err(err) = run_rdp_loop(
+            if let Err(err) = run_rdp_loop_with_retries(
                 &vm_ip,
                 &password,
                 tx,
@@ -611,6 +614,10 @@ impl RdpWindow {
         drawing.grab_focus();
         Ok(())
     }
+}
+
+fn should_retry_rdp_loop(attempt: usize, max_attempts: usize) -> bool {
+    attempt < max_attempts
 }
 
 fn install_keyboard_controller(
@@ -741,11 +748,48 @@ fn paint_frame_on_cairo(
     let _ = cr.restore();
 }
 
-async fn run_rdp_loop(
+async fn run_rdp_loop_with_retries(
     vm_ip: &str,
     password: &str,
     frame_tx: async_channel::Sender<RdpFrame>,
     mut input_rx: tokio::sync::mpsc::UnboundedReceiver<InputEvent>,
+    options: RdpWindowOptions,
+    clipboard_backend: Option<crate::clipboard::TextClipboardBackend>,
+    clipboard_runtime: Option<crate::clipboard::RdpClipboardRuntime>,
+) -> WinbridgeResult<()> {
+    for attempt in 1..=RDP_RECONNECT_ATTEMPTS {
+        match run_rdp_loop(
+            vm_ip,
+            password,
+            frame_tx.clone(),
+            &mut input_rx,
+            options.clone(),
+            clipboard_backend.clone(),
+            clipboard_runtime.clone(),
+        )
+        .await
+        {
+            Ok(()) => return Ok(()),
+            Err(err) if should_retry_rdp_loop(attempt, RDP_RECONNECT_ATTEMPTS) => {
+                tracing::warn!(
+                    attempt,
+                    max_attempts = RDP_RECONNECT_ATTEMPTS,
+                    "RDP loop exited; retrying after transient failure: {err}"
+                );
+                tokio::time::sleep(RDP_RECONNECT_DELAY).await;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
+    Ok(())
+}
+
+async fn run_rdp_loop(
+    vm_ip: &str,
+    password: &str,
+    frame_tx: async_channel::Sender<RdpFrame>,
+    input_rx: &mut tokio::sync::mpsc::UnboundedReceiver<InputEvent>,
     options: RdpWindowOptions,
     clipboard_backend: Option<crate::clipboard::TextClipboardBackend>,
     clipboard_runtime: Option<crate::clipboard::RdpClipboardRuntime>,
@@ -776,8 +820,6 @@ async fn run_rdp_loop(
         ironrdp::connector::connection_activation::ConnectionActivationSequence,
     > = None;
 
-    send_decoded_frame(&frame_tx, &image)?;
-
     loop {
         tokio::select! {
             pdu = framed.read_pdu() => {
@@ -794,7 +836,6 @@ async fn run_rdp_loop(
                                 "RDP deactivation/reactivation sequence completed"
                             );
                             image = DecodedImage::new(PixelFormat::RgbA32, width, height);
-                            send_decoded_frame(&frame_tx, &image)?;
                             reactivation = None;
                             continue;
                         }
@@ -1560,6 +1601,13 @@ mod tests {
             }
         );
         assert_eq!(options.virtual_desktop_layout, None);
+    }
+
+    #[test]
+    fn rdp_loop_retries_until_last_attempt() {
+        assert!(should_retry_rdp_loop(1, 3));
+        assert!(should_retry_rdp_loop(2, 3));
+        assert!(!should_retry_rdp_loop(3, 3));
     }
 
     #[test]

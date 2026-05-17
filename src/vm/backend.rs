@@ -13,4 +13,10 @@ pub trait LibvirtBackend: Send + Sync + 'static {
     async fn managed_save(&self, vm_name: &str) -> WinbridgeResult<()>;
     async fn shutdown(&self, vm_name: &str) -> WinbridgeResult<()>;
     async fn destroy(&self, vm_name: &str) -> WinbridgeResult<()>;
+    async fn qemu_agent_command(
+        &self,
+        vm_name: &str,
+        command: &str,
+        timeout_secs: i32,
+    ) -> WinbridgeResult<String>;
 }

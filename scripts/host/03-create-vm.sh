@@ -26,6 +26,8 @@ fi
 : "${WINBRIDGE_TIMEZONE:=Korea Standard Time}"
 : "${WINBRIDGE_BUILD_DIR:=$REPO_ROOT/build}"
 : "${WINBRIDGE_LIBVIRT_URI:=qemu:///system}"
+: "${WINBRIDGE_ENABLE_QEMU_GA:=0}"
+: "${WINBRIDGE_VIRTIO_ISO_PATH:=${WINBRIDGE_VIRTIO_ISO_DEST:-$HOME/.cache/winbridge/virtio-win.iso}}"
 
 DRY_RUN=0
 [ "${1:-}" = "--dry-run" ] && DRY_RUN=1
@@ -40,7 +42,8 @@ OEM ISO 생성 후 qcow2 디스크 생성 + libvirt VM define + start.
   WINBRIDGE_VM_NAME, WINBRIDGE_VM_RAM_KB, WINBRIDGE_VM_VCPU,
   WINBRIDGE_VM_DISK_GB, WINBRIDGE_VM_MAC, WINBRIDGE_HOME_POOL_DIR,
   WINBRIDGE_VM_DISK_PATH, WINBRIDGE_ISO_PATH, WINBRIDGE_HOSTNAME,
-  WINBRIDGE_TIMEZONE, WINBRIDGE_BUILD_DIR, WINBRIDGE_LIBVIRT_URI
+  WINBRIDGE_TIMEZONE, WINBRIDGE_BUILD_DIR, WINBRIDGE_LIBVIRT_URI,
+  WINBRIDGE_ENABLE_QEMU_GA, WINBRIDGE_VIRTIO_ISO_PATH
 USAGE
 }
 
@@ -48,6 +51,9 @@ USAGE
 
 [ -z "${WINBRIDGE_ADMIN_PASSWORD:-}" ] && { log_error "WINBRIDGE_ADMIN_PASSWORD 미설정"; exit 1; }
 [ -f "$WINBRIDGE_ISO_PATH" ] || { log_error "Server 2022 ISO 부재: $WINBRIDGE_ISO_PATH"; exit 1; }
+if [ "$WINBRIDGE_ENABLE_QEMU_GA" = "1" ]; then
+    [ -f "$WINBRIDGE_VIRTIO_ISO_PATH" ] || { log_error "virtio-win ISO 부재: $WINBRIDGE_VIRTIO_ISO_PATH"; exit 1; }
+fi
 
 require_cmd virsh
 require_cmd virt-install || true   # virt-install 실제론 안 쓰지만 prerequisites 체크용
@@ -90,6 +96,29 @@ else
 fi
 
 # 5. libvirt VM XML 렌더
+if [ "$WINBRIDGE_ENABLE_QEMU_GA" = "1" ]; then
+    WINBRIDGE_VIRTIO_DISK_XML=$(cat <<XML
+    <!-- virtio-win ISO: QEMU guest agent installer -->
+    <disk type="file" device="cdrom">
+      <driver name="qemu" type="raw"/>
+      <source file="${WINBRIDGE_VIRTIO_ISO_PATH}"/>
+      <target dev="sdd" bus="sata"/>
+      <readonly/>
+    </disk>
+XML
+)
+    WINBRIDGE_QEMU_GA_CHANNEL_XML=$(cat <<'XML'
+    <!-- QEMU guest agent channel -->
+    <channel type="unix">
+      <target type="virtio" name="org.qemu.guest_agent.0"/>
+    </channel>
+XML
+)
+else
+    WINBRIDGE_VIRTIO_DISK_XML=""
+    WINBRIDGE_QEMU_GA_CHANNEL_XML=""
+fi
+export WINBRIDGE_VIRTIO_DISK_XML WINBRIDGE_QEMU_GA_CHANNEL_XML
 export WINBRIDGE_VM_NAME WINBRIDGE_VM_RAM_KB WINBRIDGE_VM_VCPU \
     WINBRIDGE_VM_DISK_PATH WINBRIDGE_VM_MAC WINBRIDGE_ISO_PATH
 WINBRIDGE_OEM_ISO_PATH="$OEM_ISO" \

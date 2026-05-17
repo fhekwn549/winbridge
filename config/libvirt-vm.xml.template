@@ -78,6 +78,8 @@
       <readonly/>
     </disk>
 
+${WINBRIDGE_VIRTIO_DISK_XML}
+
     <!-- Network: virbr0 default NAT, e1000e (Windows 기본 지원) -->
     <interface type="network">
       <source network="default"/>
@@ -98,6 +100,8 @@
     <channel type="spicevmc">
       <target type="virtio" name="com.redhat.spice.0"/>
     </channel>
+
+${WINBRIDGE_QEMU_GA_CHANNEL_XML}
 
     <!-- Inputs -->
     <input type="tablet" bus="usb"/>

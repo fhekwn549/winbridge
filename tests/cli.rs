@@ -16,6 +16,9 @@ fn winbridge_help_exits_zero_with_subcommands_listed() {
     assert!(stdout.contains("stop"));
     assert!(stdout.contains("install-desktop-entry"));
     assert!(stdout.contains("status"));
+    assert!(stdout.contains("doctor"));
+    assert!(stdout.contains("repair-kakao"));
+    assert!(stdout.contains("repair-wallpaper"));
 }
 
 #[test]

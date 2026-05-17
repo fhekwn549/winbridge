@@ -37,6 +37,52 @@ try {
     FailWith 'RDP_ENABLE' $_.Exception.Message
 }
 
+# Step 1b: QEMU Guest Agent 설치 (virtio-win ISO가 연결된 경우)
+try {
+    $virtioRoots = Get-PSDrive -PSProvider FileSystem |
+        ForEach-Object { $_.Root } |
+        Where-Object {
+            (Test-Path (Join-Path $_ 'virtio-win-guest-tools.exe')) -or
+            (Test-Path (Join-Path $_ 'guest-agent\qemu-ga-x86_64.msi')) -or
+            (Test-Path (Join-Path $_ 'vioserial'))
+        }
+
+    $virtioRoot = $virtioRoots | Select-Object -First 1
+    if ($virtioRoot) {
+        Log "[INFO] virtio-win media detected: $virtioRoot"
+
+        $vioserial = Join-Path $virtioRoot 'vioserial'
+        if (Test-Path $vioserial) {
+            Get-ChildItem -Path $vioserial -Recurse -Filter '*.inf' -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -match '\\amd64\\' } |
+                ForEach-Object {
+                    pnputil.exe /add-driver $_.FullName /install | Out-Null
+                }
+            Log "[OK] virtio serial driver install attempted"
+        }
+
+        $guestTools = Join-Path $virtioRoot 'virtio-win-guest-tools.exe'
+        if (Test-Path $guestTools) {
+            $proc = Start-Process -FilePath $guestTools -ArgumentList '/install', '/quiet', '/norestart' -Wait -PassThru
+            Log "[OK] virtio-win guest tools installer exit code $($proc.ExitCode)"
+        }
+
+        $qgaMsi = Join-Path $virtioRoot 'guest-agent\qemu-ga-x86_64.msi'
+        if (Test-Path $qgaMsi) {
+            $proc = Start-Process -FilePath 'msiexec.exe' -ArgumentList "/i `"$qgaMsi`" /qn /norestart" -Wait -PassThru
+            Log "[OK] qemu-ga MSI installer exit code $($proc.ExitCode)"
+        }
+
+        Set-Service -Name 'QEMU-GA' -StartupType Automatic -ErrorAction SilentlyContinue
+        Start-Service -Name 'QEMU-GA' -ErrorAction SilentlyContinue
+        Log "[OK] QEMU Guest Agent install/start attempted"
+    } else {
+        Log "[WARN] virtio-win media not found; QEMU Guest Agent not installed"
+    }
+} catch {
+    Log "[WARN] QEMU Guest Agent setup failed: $($_.Exception.Message)"
+}
+
 # Step 2: 카톡 PC 다운로드
 $KakaoUrl   = if ($env:KAKAOTALK_URL) { $env:KAKAOTALK_URL } else { 'https://app-pc.kakaocdn.net/talk/win32/KakaoTalk_Setup.exe' }
 $KakaoSetup = 'C:\winbridge\KakaoTalk_Setup.exe'
@@ -97,7 +143,8 @@ param(
     [int]$Left = 0,
     [int]$Top = 0,
     [int]$Width = 960,
-    [int]$Height = 720
+    [int]$Height = 720,
+    [switch]$Restart
 )
 
 $ErrorActionPreference = 'Stop'
@@ -182,6 +229,11 @@ function Wait-KakaoTalkMainProcess {
     return $null
 }
 
+function Stop-KakaoTalkProcesses {
+    Get-Process -Name 'KakaoTalk' -ErrorAction SilentlyContinue |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+}
+
 function Enable-TaskbarAutoHide {
     $advanced = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
     if (-not (Test-Path $advanced)) {
@@ -207,6 +259,11 @@ function Enable-TaskbarAutoHide {
 
 try {
     Log 'position-kakaotalk.ps1 START'
+    if ($Restart) {
+        Stop-KakaoTalkProcesses
+        Start-Sleep -Milliseconds 500
+    }
+
     $process = Get-KakaoTalkMainProcess
     if (-not $process) {
         $kakaoExe = Find-KakaoTalkExe
@@ -236,6 +293,42 @@ try {
 '@
 
     Set-Content -Path $positionScriptPath -Value $positionScript -Encoding UTF8
+
+    $wallpaperScriptPath = 'C:\winbridge\repair-wallpaper.ps1'
+    $wallpaperScript = @'
+param(
+    [string]$StablePath = 'C:\winbridge\wallpaper.jpg'
+)
+
+$ErrorActionPreference = 'Stop'
+
+New-Item -Path (Split-Path -Parent $StablePath) -ItemType Directory -Force | Out-Null
+
+$desktop = Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction SilentlyContinue
+$current = if ($desktop -and $desktop.Wallpaper) { [string]$desktop.Wallpaper } else { '' }
+$themeCache = Join-Path $env:APPDATA 'Microsoft\Windows\Themes\TranscodedWallpaper'
+
+if ($current -and (Test-Path -LiteralPath $current)) {
+    Copy-Item -LiteralPath $current -Destination $StablePath -Force
+} elseif (Test-Path -LiteralPath $themeCache) {
+    Copy-Item -LiteralPath $themeCache -Destination $StablePath -Force
+} else {
+    throw 'No reachable wallpaper source or TranscodedWallpaper cache found.'
+}
+
+Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name Wallpaper -Value $StablePath
+Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name WallpaperStyle -Value '10'
+Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name TileWallpaper -Value '0'
+Start-Service -Name Themes -ErrorAction SilentlyContinue
+
+Add-Type -Namespace Winbridge -Name Wallpaper -MemberDefinition '[DllImport("user32.dll", SetLastError=true, CharSet=CharSet.Unicode)] public static extern bool SystemParametersInfo(int action, int param, string value, int flags);'
+if (-not [Winbridge.Wallpaper]::SystemParametersInfo(20, 0, $StablePath, 3)) {
+    throw 'SystemParametersInfo failed.'
+}
+
+Write-Host "Wallpaper repaired: $StablePath"
+'@
+    Set-Content -Path $wallpaperScriptPath -Value $wallpaperScript -Encoding UTF8
 
     $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
     Remove-ItemProperty -Path $runKey -Name 'KakaoTalk' -ErrorAction SilentlyContinue

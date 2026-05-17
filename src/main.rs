@@ -2,7 +2,7 @@ use clap::Parser;
 use gtk4::prelude::*;
 use std::sync::Arc;
 use std::time::Duration;
-use winbridge::{cli, config, desktop, error, rdp, tray, vm};
+use winbridge::{cli, config, desktop, doctor, error, rdp, tray, vm};
 
 const RDP_PORT: u16 = 3389;
 const RDP_READY_TIMEOUT: Duration = Duration::from_secs(180);
@@ -21,6 +21,13 @@ enum TrayAction {
         password: String,
     },
     OpenFinished,
+    WindowOpened,
+    WindowClosed,
+    IdleTimeout {
+        generation: u64,
+    },
+    RepairKakao,
+    RepairWallpaper,
     Pause,
     Shutdown,
     ManagedSaveThenQuit,
@@ -30,6 +37,7 @@ enum TrayAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RdpWindowCloseAction {
     CloseWindowOnly,
+    ManagedSave,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,16 +73,22 @@ impl TrayOpenGate {
 
 type DisplayResolver = Arc<dyn Fn(cli::WindowMode) -> cli::DisplayStrategy>;
 
-fn rdp_window_close_action() -> RdpWindowCloseAction {
-    RdpWindowCloseAction::CloseWindowOnly
+fn rdp_window_close_action(policy: config::CloseWindowPolicy) -> RdpWindowCloseAction {
+    match policy {
+        config::CloseWindowPolicy::KeepRunning => RdpWindowCloseAction::CloseWindowOnly,
+        config::CloseWindowPolicy::ManagedSave => RdpWindowCloseAction::ManagedSave,
+    }
 }
 
 fn process_signal_action() -> ProcessSignalAction {
     ProcessSignalAction::ManagedSaveThenQuit
 }
 
-fn tray_quit_action() -> TrayAction {
-    TrayAction::ManagedSaveThenQuit
+fn tray_quit_action(policy: config::QuitPolicy) -> TrayAction {
+    match policy {
+        config::QuitPolicy::ManagedSave => TrayAction::ManagedSaveThenQuit,
+        config::QuitPolicy::KeepRunning => TrayAction::Quit,
+    }
 }
 
 fn start_process_policy(mode: cli::WindowMode) -> StartProcessPolicy {
@@ -84,10 +98,26 @@ fn start_process_policy(mode: cli::WindowMode) -> StartProcessPolicy {
     }
 }
 
-fn rdp_window_close_handler(action: RdpWindowCloseAction) -> Arc<dyn Fn() + Send + Sync> {
+fn lifecycle_idle_timeout(lifecycle: config::LifecycleConfig) -> Option<Duration> {
+    lifecycle
+        .idle_timeout_minutes
+        .map(|minutes| Duration::from_secs(minutes.saturating_mul(60)))
+        .filter(|duration| !duration.is_zero())
+}
+
+fn rdp_window_close_handler(
+    action: RdpWindowCloseAction,
+    action_tx: async_channel::Sender<TrayAction>,
+) -> Arc<dyn Fn() + Send + Sync> {
     match action {
-        RdpWindowCloseAction::CloseWindowOnly => Arc::new(|| {
+        RdpWindowCloseAction::CloseWindowOnly => Arc::new(move || {
             tracing::debug!("RDP window closed; VM state left unchanged");
+            let _ = action_tx.try_send(TrayAction::WindowClosed);
+        }),
+        RdpWindowCloseAction::ManagedSave => Arc::new(move || {
+            tracing::info!("RDP window closed; VM managed-save requested");
+            let _ = action_tx.try_send(TrayAction::WindowClosed);
+            let _ = action_tx.try_send(TrayAction::Pause);
         }),
     }
 }
@@ -146,10 +176,14 @@ fn spawn_tray_action_loop(
 ) {
     glib::MainContext::default().spawn_local(async move {
         let mut open_gate = TrayOpenGate::default();
+        let idle_timeout = lifecycle_idle_timeout(cfg.lifecycle);
+        let mut idle_generation = 0_u64;
+        let mut rdp_window_open = false;
 
         while let Ok(action) = action_rx.recv().await {
             match action {
                 TrayAction::Open { mode } => {
+                    idle_generation = idle_generation.wrapping_add(1);
                     if !open_gate.try_begin() {
                         tracing::debug!("RDP open request ignored while another open is pending");
                         continue;
@@ -192,17 +226,77 @@ fn spawn_tray_action_loop(
                         }
                     }
 
-                    let on_close = rdp_window_close_handler(rdp_window_close_action());
+                    let on_close = rdp_window_close_handler(
+                        rdp_window_close_action(cfg.lifecycle.close_window),
+                        action_tx.clone(),
+                    );
                     let options = rdp_window_options(mode, display_resolver(mode));
 
                     if let Err(err) =
                         rdp::RdpWindow::open(&app, &vm_ip, &password, options, on_close)
                     {
                         tracing::error!("RDP window open failed: {err}");
+                    } else {
+                        let _ = action_tx.try_send(TrayAction::WindowOpened);
                     }
                     open_gate.finish();
                 }
                 TrayAction::OpenFinished => open_gate.finish(),
+                TrayAction::WindowOpened => {
+                    rdp_window_open = true;
+                    idle_generation = idle_generation.wrapping_add(1);
+                }
+                TrayAction::WindowClosed => {
+                    rdp_window_open = false;
+                    idle_generation = idle_generation.wrapping_add(1);
+                    if let Some(timeout) = idle_timeout {
+                        let generation = idle_generation;
+                        let action_tx = action_tx.clone();
+                        handle.spawn(async move {
+                            tokio::time::sleep(timeout).await;
+                            let _ = action_tx.try_send(TrayAction::IdleTimeout { generation });
+                        });
+                    }
+                }
+                TrayAction::IdleTimeout { generation } => {
+                    if generation != idle_generation || rdp_window_open {
+                        continue;
+                    }
+                    let manager = manager.clone();
+                    handle.spawn(async move {
+                        tracing::info!("VM idle timeout reached; managed-save requested");
+                        if let Err(err) = manager.managed_save().await {
+                            tracing::error!("VM idle managed save failed: {err}");
+                        }
+                    });
+                }
+                TrayAction::RepairKakao => {
+                    let manager = manager.clone();
+                    handle.spawn(async move {
+                        if let Err(err) = manager.ensure_active().await {
+                            tracing::error!("VM wake before KakaoTalk repair failed: {err}");
+                            return;
+                        }
+                        if let Err(err) = manager.repair_kakaotalk().await {
+                            tracing::error!("KakaoTalk repair failed: {err}");
+                        } else {
+                            tracing::info!("KakaoTalk repair requested");
+                        }
+                    });
+                }
+                TrayAction::RepairWallpaper => {
+                    let manager = manager.clone();
+                    handle.spawn(async move {
+                        if let Err(err) = manager.ensure_active().await {
+                            tracing::error!("VM wake before wallpaper repair failed: {err}");
+                            return;
+                        }
+                        match manager.repair_wallpaper().await {
+                            Ok(detail) => tracing::info!("Wallpaper repair requested: {detail}"),
+                            Err(err) => tracing::error!("Wallpaper repair failed: {err}"),
+                        }
+                    });
+                }
                 TrayAction::Pause => {
                     let manager = manager.clone();
                     handle.spawn(async move {
@@ -235,6 +329,7 @@ fn spawn_tray_action_loop(
 fn main() {
     let cli = cli::Cli::parse();
     init_logging(cli.verbose);
+    virt::error::clear_error_callback();
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -252,6 +347,24 @@ fn main() {
             Some(cli::Command::Status) => {
                 if let Err(err) = run_status().await {
                     eprintln!("status 실패: {err}");
+                    std::process::exit(1);
+                }
+            }
+            Some(cli::Command::Doctor) => {
+                if let Err(err) = run_doctor().await {
+                    eprintln!("doctor 실패: {err}");
+                    std::process::exit(1);
+                }
+            }
+            Some(cli::Command::RepairKakao) => {
+                if let Err(err) = run_repair_kakao().await {
+                    eprintln!("repair-kakao 실패: {err}");
+                    std::process::exit(1);
+                }
+            }
+            Some(cli::Command::RepairWallpaper) => {
+                if let Err(err) = run_repair_wallpaper().await {
+                    eprintln!("repair-wallpaper 실패: {err}");
                     std::process::exit(1);
                 }
             }
@@ -284,6 +397,38 @@ async fn run_status() -> error::WinbridgeResult<()> {
     let state = manager.state().await?;
 
     println!("VM '{}' 상태: {:?}", cfg.vm_name, state);
+    Ok(())
+}
+
+async fn run_doctor() -> error::WinbridgeResult<()> {
+    let report = doctor::diagnose_host().await;
+    print!("{}", doctor::format_report(&report));
+    Ok(())
+}
+
+async fn run_repair_kakao() -> error::WinbridgeResult<()> {
+    let cfg = config::WinbridgeConfig::load()?;
+    let backend = vm::libvirt_backend::LibvirtBackendImpl::open(&cfg.libvirt_uri)?;
+    let manager = vm::VmManager::new(Arc::new(backend), cfg.vm_name.clone());
+
+    manager.ensure_active().await?;
+    manager.repair_kakaotalk().await?;
+    println!("KakaoTalk repair requested through QEMU guest agent");
+    Ok(())
+}
+
+async fn run_repair_wallpaper() -> error::WinbridgeResult<()> {
+    let cfg = config::WinbridgeConfig::load()?;
+    let backend = vm::libvirt_backend::LibvirtBackendImpl::open(&cfg.libvirt_uri)?;
+    let manager = vm::VmManager::new(Arc::new(backend), cfg.vm_name.clone());
+
+    manager.ensure_active().await?;
+    let detail = manager.repair_wallpaper().await?;
+    if detail.is_empty() {
+        println!("Wallpaper repair requested through QEMU guest agent");
+    } else {
+        println!("{detail}");
+    }
     Ok(())
 }
 
@@ -323,12 +468,25 @@ async fn run_tray() -> error::WinbridgeResult<()> {
     let quit_winbridge: Arc<dyn Fn() + Send + Sync> = {
         let action_tx = action_tx.clone();
         Arc::new(move || {
-            let _ = action_tx.try_send(tray_quit_action());
+            let _ = action_tx.try_send(tray_quit_action(cfg.lifecycle.quit));
+        })
+    };
+    let repair_kakao: Arc<dyn Fn() + Send + Sync> = {
+        let action_tx = action_tx.clone();
+        Arc::new(move || {
+            let _ = action_tx.try_send(TrayAction::RepairKakao);
+        })
+    };
+    let repair_wallpaper: Arc<dyn Fn() + Send + Sync> = {
+        let action_tx = action_tx.clone();
+        Arc::new(move || {
+            let _ = action_tx.try_send(TrayAction::RepairWallpaper);
         })
     };
 
     let _kakaotalk_tray_handle = tray::spawn_kakaotalk_tray(tray::KakaoTalkTray {
         on_open: open_kakao.clone(),
+        on_repair: repair_kakao.clone(),
         on_quit: quit_winbridge.clone(),
     });
 
@@ -342,6 +500,8 @@ async fn run_tray() -> error::WinbridgeResult<()> {
                 });
             })
         },
+        on_repair_kakao: repair_kakao,
+        on_repair_wallpaper: repair_wallpaper,
         on_pause: {
             let action_tx = action_tx.clone();
             Arc::new(move || {
@@ -381,6 +541,8 @@ async fn run_start(
     let handle = tokio::runtime::Handle::current();
     let vm_ip = cfg.vm_ip.clone();
     let password = cfg.admin_password.clone();
+    let close_window_policy = cfg.lifecycle.close_window;
+    let quit_policy = cfg.lifecycle.quit;
     let start_policy = start_process_policy(mode);
     let _app_hold = match start_policy {
         StartProcessPolicy::HoldTrayAfterWindowClose => Some(app.hold()),
@@ -399,6 +561,7 @@ async fn run_start(
     );
     spawn_process_signal_handler(manager, action_tx.clone());
 
+    let activate_action_tx = action_tx.clone();
     app.connect_activate(move |app| {
         if let Some(window) = app.active_window() {
             window.present();
@@ -406,11 +569,16 @@ async fn run_start(
         }
 
         let _guard = handle.enter();
-        let on_close = rdp_window_close_handler(rdp_window_close_action());
+        let on_close = rdp_window_close_handler(
+            rdp_window_close_action(close_window_policy),
+            activate_action_tx.clone(),
+        );
         let options = rdp_window_options(mode, display);
 
         if let Err(err) = rdp::RdpWindow::open(app, &vm_ip, &password, options, on_close) {
             tracing::error!("RDP window open failed: {err}");
+        } else {
+            let _ = activate_action_tx.try_send(TrayAction::WindowOpened);
         }
     });
     let _kakaotalk_tray_handle = if start_policy == StartProcessPolicy::HoldTrayAfterWindowClose {
@@ -422,8 +590,14 @@ async fn run_start(
                     mode: cli::WindowMode::App,
                 });
             }),
+            on_repair: {
+                let action_tx = quit_action_tx.clone();
+                Arc::new(move || {
+                    let _ = action_tx.try_send(TrayAction::RepairKakao);
+                })
+            },
             on_quit: Arc::new(move || {
-                let _ = quit_action_tx.try_send(tray_quit_action());
+                let _ = quit_action_tx.try_send(tray_quit_action(quit_policy));
             }),
         }))
     } else {
@@ -447,6 +621,18 @@ async fn run_start(
                     });
                 })
             },
+            on_repair_kakao: {
+                let action_tx = action_tx.clone();
+                Arc::new(move || {
+                    let _ = action_tx.try_send(TrayAction::RepairKakao);
+                })
+            },
+            on_repair_wallpaper: {
+                let action_tx = action_tx.clone();
+                Arc::new(move || {
+                    let _ = action_tx.try_send(TrayAction::RepairWallpaper);
+                })
+            },
             on_pause: {
                 let action_tx = action_tx.clone();
                 Arc::new(move || {
@@ -462,7 +648,7 @@ async fn run_start(
             on_quit: {
                 let action_tx = action_tx.clone();
                 Arc::new(move || {
-                    let _ = action_tx.try_send(tray_quit_action());
+                    let _ = action_tx.try_send(tray_quit_action(quit_policy));
                 })
             },
         }))
@@ -630,7 +816,7 @@ fn init_logging(verbose: bool) {
     let filter = if verbose {
         EnvFilter::new("debug")
     } else {
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn,winbridge=info"))
     };
 
     fmt()
@@ -675,13 +861,30 @@ mod tests {
         async fn destroy(&self, _vm_name: &str) -> error::WinbridgeResult<()> {
             Ok(())
         }
+
+        async fn qemu_agent_command(
+            &self,
+            _vm_name: &str,
+            _command: &str,
+            _timeout_secs: i32,
+        ) -> error::WinbridgeResult<String> {
+            Ok(r#"{"return":{}}"#.to_string())
+        }
     }
 
     #[test]
     fn rdp_window_close_keeps_vm_running_for_mvp_testing() {
         assert_eq!(
-            rdp_window_close_action(),
+            rdp_window_close_action(config::CloseWindowPolicy::KeepRunning),
             RdpWindowCloseAction::CloseWindowOnly
+        );
+    }
+
+    #[test]
+    fn rdp_window_close_can_managed_save_from_config() {
+        assert_eq!(
+            rdp_window_close_action(config::CloseWindowPolicy::ManagedSave),
+            RdpWindowCloseAction::ManagedSave
         );
     }
 
@@ -695,7 +898,18 @@ mod tests {
 
     #[test]
     fn tray_quit_saves_vm_before_quitting() {
-        assert_eq!(tray_quit_action(), TrayAction::ManagedSaveThenQuit);
+        assert_eq!(
+            tray_quit_action(config::QuitPolicy::ManagedSave),
+            TrayAction::ManagedSaveThenQuit
+        );
+    }
+
+    #[test]
+    fn tray_quit_can_leave_vm_running_from_config() {
+        assert_eq!(
+            tray_quit_action(config::QuitPolicy::KeepRunning),
+            TrayAction::Quit
+        );
     }
 
     #[tokio::test]
@@ -742,6 +956,27 @@ mod tests {
         assert_eq!(
             start_process_policy(cli::WindowMode::Desktop),
             StartProcessPolicy::ExitWithLastWindow
+        );
+    }
+
+    #[test]
+    fn lifecycle_idle_timeout_is_disabled_by_default() {
+        assert_eq!(
+            lifecycle_idle_timeout(config::LifecycleConfig::default()),
+            None
+        );
+    }
+
+    #[test]
+    fn lifecycle_idle_timeout_converts_minutes_to_duration() {
+        let lifecycle = config::LifecycleConfig {
+            idle_timeout_minutes: Some(30),
+            ..config::LifecycleConfig::default()
+        };
+
+        assert_eq!(
+            lifecycle_idle_timeout(lifecycle),
+            Some(Duration::from_secs(1800))
         );
     }
 

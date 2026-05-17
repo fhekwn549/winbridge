@@ -42,6 +42,22 @@ out=$(WINBRIDGE_ISO_URL="file://$TMPDIR/fake.iso" \
 echo "$out" | grep -qi "skip\|이미\|already" \
     || { echo "FAIL: second run missing skip indicator. Output: $out"; exit 1; }
 
+# Optional virtio-win ISO download is opt-in for QEMU guest agent support.
+echo "fake virtio content $(date +%s%N)" > "$TMPDIR/fake-virtio.iso"
+VIRTIO_SHA=$(sha256sum "$TMPDIR/fake-virtio.iso" | cut -d' ' -f1)
+WINBRIDGE_ISO_URL="file://$TMPDIR/fake.iso" \
+WINBRIDGE_ISO_SHA256="$SHA" \
+WINBRIDGE_ISO_DEST="$TMPDIR/winbridge.iso" \
+WINBRIDGE_SENTINEL_DIR="$TMPDIR/cache" \
+WINBRIDGE_ENABLE_QEMU_GA=1 \
+WINBRIDGE_VIRTIO_ISO_URL="file://$TMPDIR/fake-virtio.iso" \
+WINBRIDGE_VIRTIO_ISO_SHA256="$VIRTIO_SHA" \
+WINBRIDGE_VIRTIO_ISO_DEST="$TMPDIR/virtio-win.iso" \
+"$TARGET" >/dev/null 2>&1 \
+    || { echo "FAIL: virtio-win ISO download failed"; exit 1; }
+[ -f "$TMPDIR/virtio-win.iso" ] || { echo "FAIL: virtio-win ISO file missing"; exit 1; }
+[ -f "$TMPDIR/cache/01-virtio-iso-downloaded.done" ] || { echo "FAIL: virtio-win sentinel missing"; exit 1; }
+
 # sha256 mismatch (sentinel must be invalidated, file deleted, exit non-zero)
 TMPDIR2=$(mktemp -d)
 trap 'rm -rf "$TMPDIR" "$TMPDIR2"' EXIT

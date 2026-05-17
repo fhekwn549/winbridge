@@ -40,6 +40,15 @@ pub enum Command {
 
     /// Print the VM state.
     Status,
+
+    /// Diagnose host, VM, and RDP readiness.
+    Doctor,
+
+    /// Restart and foreground KakaoTalk through QEMU guest agent.
+    RepairKakao,
+
+    /// Restore Windows wallpaper from a reachable source or theme cache.
+    RepairWallpaper,
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]

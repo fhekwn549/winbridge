@@ -27,7 +27,7 @@ struct TextClipboardState {
     pending_remote_format: Option<ClipboardFormatId>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct RdpClipboardRuntime {
     pub(crate) command_rx: async_channel::Receiver<RdpClipboardCommand>,
     pub(crate) backend_rx: async_channel::Receiver<ClipboardMessage>,
@@ -42,7 +42,7 @@ impl RdpClipboardRuntime {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct TextClipboardBackend {
     temp_dir: String,
     state: Arc<Mutex<TextClipboardState>>,

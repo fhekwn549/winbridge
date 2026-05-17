@@ -104,6 +104,18 @@ impl LibvirtBackend for LibvirtBackendImpl {
             .map_err(|e| VmError::LibvirtApi(e.to_string()))?;
         Ok(())
     }
+
+    async fn qemu_agent_command(
+        &self,
+        vm_name: &str,
+        command: &str,
+        timeout_secs: i32,
+    ) -> WinbridgeResult<String> {
+        let domain = self.lookup(vm_name)?;
+        domain
+            .qemu_agent_command(command, timeout_secs, 0)
+            .map_err(|e| VmError::GuestAgent(e.to_string()).into())
+    }
 }
 
 #[cfg(test)]

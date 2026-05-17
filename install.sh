@@ -26,6 +26,7 @@ usage() {
   WINBRIDGE_VM_RAM_KB     기본 4194304 (4GB)
   WINBRIDGE_VM_VCPU       기본 2
   WINBRIDGE_VM_IP         기본 192.168.122.50
+  WINBRIDGE_ENABLE_QEMU_GA 기본 1 (virtio-win ISO + QEMU guest agent)
 
 진행:
   1. ~/.config/winbridge/credentials에 random Administrator 비밀번호 생성/로드
@@ -59,6 +60,8 @@ else
     log_info "자격 증명 생성: $CRED_FILE"
 fi
 export WINBRIDGE_ADMIN_PASSWORD
+: "${WINBRIDGE_ENABLE_QEMU_GA:=1}"
+export WINBRIDGE_ENABLE_QEMU_GA
 
 # 단계 실행 헬퍼
 run_step() {

@@ -2,6 +2,9 @@ pub mod backend;
 pub mod libvirt_backend;
 
 use crate::error::{VmError, WinbridgeResult};
+use base64::Engine as _;
+use serde::Deserialize;
+use serde_json::json;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +36,51 @@ impl VmState {
 pub struct VmManager {
     backend: Arc<dyn backend::LibvirtBackend>,
     vm_name: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct GuestDiagnostics {
+    pub wallpaper: GuestWallpaperDiagnostics,
+    pub themes: GuestServiceDiagnostics,
+    pub kakaotalk: GuestKakaoTalkDiagnostics,
+    pub disk: GuestDiskDiagnostics,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct GuestWallpaperDiagnostics {
+    pub path: String,
+    #[serde(rename = "sourceReachable")]
+    pub source_reachable: bool,
+    #[serde(rename = "themeCacheReachable")]
+    pub theme_cache_reachable: bool,
+    #[serde(rename = "themeCacheBytes")]
+    pub theme_cache_bytes: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct GuestServiceDiagnostics {
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct GuestKakaoTalkDiagnostics {
+    #[serde(rename = "processCount")]
+    pub process_count: u32,
+    #[serde(rename = "hasMainWindow")]
+    pub has_main_window: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct GuestDiskDiagnostics {
+    #[serde(rename = "freeGb")]
+    pub free_gb: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GuestExecStatus {
+    exitcode: i64,
+    stdout: String,
+    stderr: String,
 }
 
 impl VmManager {
@@ -107,6 +155,246 @@ impl VmManager {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
     }
+
+    pub async fn qemu_guest_ping(&self) -> WinbridgeResult<()> {
+        self.backend
+            .qemu_agent_command(&self.vm_name, r#"{"execute":"guest-ping"}"#, 5)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn guest_diagnostics(&self) -> WinbridgeResult<GuestDiagnostics> {
+        let output = self
+            .run_powershell_capture(guest_diagnostics_powershell_command(), 10, 40)
+            .await?;
+        let stdout = output.stdout.trim_matches(char::from(0)).trim();
+        serde_json::from_str(stdout).map_err(|err| {
+            VmError::GuestAgent(format!(
+                "failed to parse guest diagnostics JSON: {err}; stdout={stdout}"
+            ))
+            .into()
+        })
+    }
+
+    pub async fn repair_kakaotalk(&self) -> WinbridgeResult<()> {
+        self.qemu_guest_ping().await?;
+        let command = kakaotalk_repair_guest_exec_command();
+        let response = self
+            .backend
+            .qemu_agent_command(&self.vm_name, &command, 10)
+            .await?;
+        let pid = guest_exec_pid(&response)?;
+
+        for _ in 0..40 {
+            let status_command = json!({
+                "execute": "guest-exec-status",
+                "arguments": { "pid": pid }
+            })
+            .to_string();
+            let response = self
+                .backend
+                .qemu_agent_command(&self.vm_name, &status_command, 10)
+                .await?;
+            if let Some(status) = guest_exec_status(&response)? {
+                if status.exitcode == 0 {
+                    return Ok(());
+                }
+                return Err(VmError::GuestAgent(format!(
+                    "KakaoTalk repair exited with code {}",
+                    status.exitcode
+                ))
+                .into());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+
+        Err(VmError::GuestAgent("KakaoTalk repair timed out".to_string()).into())
+    }
+
+    pub async fn repair_wallpaper(&self) -> WinbridgeResult<String> {
+        let output = self
+            .run_powershell_capture(repair_wallpaper_powershell_command(), 10, 40)
+            .await?;
+        Ok(output.stdout.trim_matches(char::from(0)).trim().to_string())
+    }
+
+    async fn run_powershell_capture(
+        &self,
+        powershell: &str,
+        timeout_secs: i32,
+        poll_count: usize,
+    ) -> WinbridgeResult<GuestExecStatus> {
+        self.qemu_guest_ping().await?;
+        let command = powershell_guest_exec_command(powershell, true);
+        let response = self
+            .backend
+            .qemu_agent_command(&self.vm_name, &command, timeout_secs)
+            .await?;
+        let pid = guest_exec_pid(&response)?;
+
+        for _ in 0..poll_count {
+            let status_command = json!({
+                "execute": "guest-exec-status",
+                "arguments": { "pid": pid }
+            })
+            .to_string();
+            let response = self
+                .backend
+                .qemu_agent_command(&self.vm_name, &status_command, timeout_secs)
+                .await?;
+            if let Some(status) = guest_exec_status(&response)? {
+                if status.exitcode == 0 {
+                    return Ok(status);
+                }
+                return Err(VmError::GuestAgent(format!(
+                    "PowerShell exited with code {}; stderr={}; stdout={}",
+                    status.exitcode, status.stderr, status.stdout
+                ))
+                .into());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+
+        Err(VmError::GuestAgent("PowerShell guest-exec timed out".to_string()).into())
+    }
+}
+
+pub fn kakaotalk_repair_guest_exec_command() -> String {
+    powershell_guest_exec_command(kakaotalk_repair_powershell_command(), false)
+}
+
+fn powershell_guest_exec_command(command: &str, capture_output: bool) -> String {
+    json!({
+        "execute": "guest-exec",
+        "arguments": {
+            "path": "powershell.exe",
+            "arg": [
+                "-ExecutionPolicy",
+                "Bypass",
+                "-NoProfile",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                command
+            ],
+            "capture-output": capture_output
+        }
+    })
+    .to_string()
+}
+
+fn kakaotalk_repair_powershell_command() -> &'static str {
+    "$script = 'C:\\winbridge\\position-kakaotalk.ps1'; \
+if (-not (Test-Path $script)) { throw 'position-kakaotalk.ps1 not found.' }; \
+$content = Get-Content -Path $script -Raw -ErrorAction Stop; \
+if ($content -match '\\[switch\\]\\$Restart') { \
+    & $script -Restart; \
+} else { \
+    Get-Process -Name 'KakaoTalk' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; \
+    Start-Sleep -Milliseconds 500; \
+    & $script; \
+}"
+}
+
+fn guest_diagnostics_powershell_command() -> &'static str {
+    "$ErrorActionPreference = 'Stop'; \
+$desktop = Get-ItemProperty -Path 'HKCU:\\Control Panel\\Desktop' -ErrorAction SilentlyContinue; \
+$wallpaper = if ($desktop -and $desktop.Wallpaper) { [string]$desktop.Wallpaper } else { '' }; \
+$themeCachePath = Join-Path $env:APPDATA 'Microsoft\\Windows\\Themes\\TranscodedWallpaper'; \
+$themeCache = Get-Item -LiteralPath $themeCachePath -ErrorAction SilentlyContinue; \
+$themes = Get-Service -Name Themes -ErrorAction SilentlyContinue; \
+$kakao = @(Get-Process -Name KakaoTalk -ErrorAction SilentlyContinue); \
+$main = $kakao | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1; \
+$drive = Get-PSDrive -Name C -ErrorAction Stop; \
+[pscustomobject]@{ \
+    wallpaper = [pscustomobject]@{ \
+        path = $wallpaper; \
+        sourceReachable = [bool]($wallpaper -and (Test-Path -LiteralPath $wallpaper)); \
+        themeCacheReachable = [bool]$themeCache; \
+        themeCacheBytes = if ($themeCache) { [uint64]$themeCache.Length } else { [uint64]0 } \
+    }; \
+    themes = [pscustomobject]@{ status = if ($themes) { [string]$themes.Status } else { 'missing' } }; \
+    kakaotalk = [pscustomobject]@{ processCount = [uint32]$kakao.Count; hasMainWindow = [bool]$main }; \
+    disk = [pscustomobject]@{ freeGb = [math]::Round($drive.Free / 1GB, 1) } \
+} | ConvertTo-Json -Compress -Depth 5"
+}
+
+fn repair_wallpaper_powershell_command() -> &'static str {
+    "$ErrorActionPreference = 'Stop'; \
+New-Item -Path 'C:\\winbridge' -ItemType Directory -Force | Out-Null; \
+$desktop = Get-ItemProperty -Path 'HKCU:\\Control Panel\\Desktop' -ErrorAction SilentlyContinue; \
+$current = if ($desktop -and $desktop.Wallpaper) { [string]$desktop.Wallpaper } else { '' }; \
+$themeCache = Join-Path $env:APPDATA 'Microsoft\\Windows\\Themes\\TranscodedWallpaper'; \
+$stable = 'C:\\winbridge\\wallpaper.jpg'; \
+if ($current -and (Test-Path -LiteralPath $current)) { \
+    Copy-Item -LiteralPath $current -Destination $stable -Force; \
+} elseif (Test-Path -LiteralPath $themeCache) { \
+    Copy-Item -LiteralPath $themeCache -Destination $stable -Force; \
+} else { \
+    throw 'No reachable wallpaper source or TranscodedWallpaper cache found.'; \
+}; \
+Set-ItemProperty -Path 'HKCU:\\Control Panel\\Desktop' -Name Wallpaper -Value $stable; \
+Set-ItemProperty -Path 'HKCU:\\Control Panel\\Desktop' -Name WallpaperStyle -Value '10'; \
+Set-ItemProperty -Path 'HKCU:\\Control Panel\\Desktop' -Name TileWallpaper -Value '0'; \
+Start-Service -Name Themes -ErrorAction SilentlyContinue; \
+Add-Type -Namespace Winbridge -Name Wallpaper -MemberDefinition '[DllImport(\"user32.dll\", SetLastError=true, CharSet=CharSet.Unicode)] public static extern bool SystemParametersInfo(int action, int param, string value, int flags);'; \
+if (-not [Winbridge.Wallpaper]::SystemParametersInfo(20, 0, $stable, 3)) { \
+    throw 'SystemParametersInfo failed.'; \
+}; \
+Write-Host \"Wallpaper repaired: $stable\""
+}
+
+fn guest_exec_pid(response: &str) -> WinbridgeResult<i64> {
+    let value: serde_json::Value =
+        serde_json::from_str(response).map_err(|err| VmError::GuestAgent(err.to_string()))?;
+    value
+        .get("return")
+        .and_then(|value| value.get("pid"))
+        .and_then(|value| value.as_i64())
+        .ok_or_else(|| {
+            VmError::GuestAgent(format!("guest-exec response missing pid: {response}")).into()
+        })
+}
+
+fn guest_exec_status(response: &str) -> WinbridgeResult<Option<GuestExecStatus>> {
+    let value: serde_json::Value =
+        serde_json::from_str(response).map_err(|err| VmError::GuestAgent(err.to_string()))?;
+    let Some(return_value) = value.get("return") else {
+        return Err(VmError::GuestAgent(format!(
+            "guest-exec-status response missing return: {response}"
+        ))
+        .into());
+    };
+    let exited = return_value
+        .get("exited")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    if !exited {
+        return Ok(None);
+    }
+    let exitcode = return_value
+        .get("exitcode")
+        .and_then(|value| value.as_i64())
+        .ok_or_else(|| {
+            VmError::GuestAgent(format!("guest-exec-status missing exitcode: {response}"))
+        })?;
+    let stdout = decode_guest_exec_data(return_value.get("out-data"))?;
+    let stderr = decode_guest_exec_data(return_value.get("err-data"))?;
+    Ok(Some(GuestExecStatus {
+        exitcode,
+        stdout,
+        stderr,
+    }))
+}
+
+fn decode_guest_exec_data(value: Option<&serde_json::Value>) -> WinbridgeResult<String> {
+    let Some(encoded) = value.and_then(|value| value.as_str()) else {
+        return Ok(String::new());
+    };
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|err| VmError::GuestAgent(format!("guest-exec base64 decode failed: {err}")))?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 #[cfg(test)]
@@ -274,5 +562,81 @@ mod tests {
 
         let mgr = VmManager::new(Arc::new(mock), "test-vm");
         mgr.graceful_shutdown(0).await.unwrap();
+    }
+
+    #[test]
+    fn kakaotalk_repair_command_runs_position_script_with_restart() {
+        let command = kakaotalk_repair_guest_exec_command();
+
+        assert!(command.contains("guest-exec"));
+        assert!(command.contains("powershell.exe"));
+        assert!(command.contains("C:\\\\winbridge\\\\position-kakaotalk.ps1"));
+        assert!(command.contains("-Restart"));
+        assert!(command.contains("Stop-Process"));
+    }
+
+    #[test]
+    fn guest_exec_pid_reads_qga_response() {
+        assert_eq!(guest_exec_pid(r#"{"return":{"pid":42}}"#).unwrap(), 42);
+    }
+
+    #[test]
+    fn guest_exec_status_reports_pending_and_exitcode() {
+        assert_eq!(
+            guest_exec_status(r#"{"return":{"exited":false}}"#).unwrap(),
+            None
+        );
+
+        let status = guest_exec_status(r#"{"return":{"exited":true,"exitcode":0}}"#)
+            .unwrap()
+            .unwrap();
+        assert_eq!(status.exitcode, 0);
+        assert_eq!(status.stdout, "");
+        assert_eq!(status.stderr, "");
+    }
+
+    #[test]
+    fn guest_exec_status_decodes_captured_output() {
+        let status = guest_exec_status(
+            r#"{"return":{"exited":true,"exitcode":0,"out-data":"aGVsbG8=","err-data":"d2Fybgo="}}"#,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(status.stdout, "hello");
+        assert_eq!(status.stderr, "warn\n");
+    }
+
+    #[test]
+    fn guest_diagnostics_json_parses() {
+        let diagnostics: GuestDiagnostics = serde_json::from_str(
+            r#"{"wallpaper":{"path":"W:\\Downloads\\winbridge_desktop","sourceReachable":false,"themeCacheReachable":true,"themeCacheBytes":1696236},"themes":{"status":"Running"},"kakaotalk":{"processCount":1,"hasMainWindow":true},"disk":{"freeGb":18.5}}"#,
+        )
+        .unwrap();
+
+        assert!(!diagnostics.wallpaper.source_reachable);
+        assert!(diagnostics.wallpaper.theme_cache_reachable);
+        assert!(diagnostics.kakaotalk.has_main_window);
+        assert_eq!(diagnostics.themes.status, "Running");
+    }
+
+    #[test]
+    fn guest_diagnostics_command_captures_output() {
+        let command = powershell_guest_exec_command(guest_diagnostics_powershell_command(), true);
+
+        assert!(command.contains("guest-exec"));
+        assert!(command.contains("\"capture-output\":true"));
+        assert!(command.contains("TranscodedWallpaper"));
+        assert!(command.contains("KakaoTalk"));
+    }
+
+    #[test]
+    fn repair_wallpaper_command_uses_stable_path_and_theme_cache() {
+        let command = powershell_guest_exec_command(repair_wallpaper_powershell_command(), true);
+
+        assert!(command.contains("guest-exec"));
+        assert!(command.contains("C:\\\\winbridge\\\\wallpaper.jpg"));
+        assert!(command.contains("TranscodedWallpaper"));
+        assert!(command.contains("SystemParametersInfo"));
     }
 }
