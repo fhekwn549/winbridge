@@ -42,6 +42,22 @@ USAGE
 require_cmd virsh
 mkdir -p "$WINBRIDGE_BUILD_DIR"
 
+grant_iso_access() {
+    if ! command -v setfacl >/dev/null 2>&1; then
+        log_warn "setfacl 없음; libvirt-qemu가 virtio ISO 경로를 읽지 못하면 VM start가 실패할 수 있음"
+        return 0
+    fi
+
+    local dir
+    dir="$(dirname "$WINBRIDGE_VIRTIO_ISO_PATH")"
+    setfacl -m u:libvirt-qemu:x "$HOME" 2>/dev/null || true
+    setfacl -m u:libvirt-qemu:x "$HOME/.cache" 2>/dev/null || true
+    setfacl -m u:libvirt-qemu:x "$dir" 2>/dev/null || true
+    setfacl -m u:libvirt-qemu:r "$WINBRIDGE_VIRTIO_ISO_PATH" 2>/dev/null || true
+}
+
+grant_iso_access
+
 VIRTIO_XML="$WINBRIDGE_BUILD_DIR/qemu-ga-virtio-cdrom.xml"
 CHANNEL_XML="$WINBRIDGE_BUILD_DIR/qemu-ga-channel.xml"
 

@@ -41,5 +41,7 @@ echo "$qga_out" | grep -q "org.qemu.guest_agent.0" \
     || { echo "FAIL: qemu-ga dry-run missing guest agent channel"; exit 1; }
 echo "$qga_out" | grep -qi "virtio" \
     || { echo "FAIL: qemu-ga dry-run missing virtio ISO"; exit 1; }
+grep -q "setfacl" "$QGA_TARGET" \
+    || { echo "FAIL: qemu-ga retrofit does not grant libvirt-qemu ISO access"; exit 1; }
 
 echo "PASS: test-libvirt.sh"
