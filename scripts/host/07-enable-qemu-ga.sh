@@ -12,6 +12,7 @@ source "$REPO_ROOT/scripts/lib/common.sh"
 : "${WINBRIDGE_LIBVIRT_URI:=qemu:///system}"
 : "${WINBRIDGE_VIRTIO_ISO_PATH:=${WINBRIDGE_VIRTIO_ISO_DEST:-$HOME/.cache/winbridge/virtio-win.iso}}"
 : "${WINBRIDGE_BUILD_DIR:=$REPO_ROOT/build}"
+: "${WINBRIDGE_VIRTIO_CDROM_DEV:=sde}"
 
 DRY_RUN=0
 [ "${1:-}" = "--dry-run" ] && DRY_RUN=1
@@ -48,7 +49,7 @@ cat > "$VIRTIO_XML" <<XML
 <disk type="file" device="cdrom">
   <driver name="qemu" type="raw"/>
   <source file="$WINBRIDGE_VIRTIO_ISO_PATH"/>
-  <target dev="sdd" bus="sata"/>
+  <target dev="$WINBRIDGE_VIRTIO_CDROM_DEV" bus="sata"/>
   <readonly/>
 </disk>
 XML
@@ -60,8 +61,8 @@ cat > "$CHANNEL_XML" <<'XML'
 XML
 
 if [ $DRY_RUN -eq 1 ]; then
-    log_info "[dry-run] sudo virsh -c $WINBRIDGE_LIBVIRT_URI attach-device $WINBRIDGE_VM_NAME $CHANNEL_XML --config"
-    log_info "[dry-run] sudo virsh -c $WINBRIDGE_LIBVIRT_URI attach-device $WINBRIDGE_VM_NAME $VIRTIO_XML --config"
+    log_info "[dry-run] virsh -c $WINBRIDGE_LIBVIRT_URI attach-device $WINBRIDGE_VM_NAME $CHANNEL_XML --config"
+    log_info "[dry-run] virsh -c $WINBRIDGE_LIBVIRT_URI attach-device $WINBRIDGE_VM_NAME $VIRTIO_XML --config"
     log_info "[dry-run] live VM이면 --live도 시도"
     log_info "[dry-run] channel XML:"
     sed 's/^/  /' "$CHANNEL_XML"
@@ -70,12 +71,44 @@ if [ $DRY_RUN -eq 1 ]; then
     exit 0
 fi
 
-sudo virsh -c "$WINBRIDGE_LIBVIRT_URI" attach-device "$WINBRIDGE_VM_NAME" "$CHANNEL_XML" --config || true
-sudo virsh -c "$WINBRIDGE_LIBVIRT_URI" attach-device "$WINBRIDGE_VM_NAME" "$VIRTIO_XML" --config || true
+virsh_attach() {
+    local xml="$1"
+    local mode="$2"
+    local output
 
-if sudo virsh -c "$WINBRIDGE_LIBVIRT_URI" domstate "$WINBRIDGE_VM_NAME" | grep -qi running; then
-    sudo virsh -c "$WINBRIDGE_LIBVIRT_URI" attach-device "$WINBRIDGE_VM_NAME" "$CHANNEL_XML" --live || true
-    sudo virsh -c "$WINBRIDGE_LIBVIRT_URI" attach-device "$WINBRIDGE_VM_NAME" "$VIRTIO_XML" --live || true
+    if output=$(virsh -c "$WINBRIDGE_LIBVIRT_URI" attach-device "$WINBRIDGE_VM_NAME" "$xml" "$mode" 2>&1); then
+        log_info "attached $xml $mode"
+        return 0
+    fi
+
+    case "$output" in
+        *"already exists"*|*"target ${WINBRIDGE_VIRTIO_CDROM_DEV} already exists"*)
+            log_warn "already attached or target busy: $xml $mode"
+            return 0
+            ;;
+        *"cdrom/floppy device hotplug isn't supported"*)
+            log_warn "CD-ROM live hotplug unsupported; VM restart will apply config attach"
+            return 1
+            ;;
+        *"authentication unavailable"*|*"access denied"*|*"permission denied"*)
+            log_warn "virsh without sudo failed; trying sudo: $output"
+            sudo virsh -c "$WINBRIDGE_LIBVIRT_URI" attach-device "$WINBRIDGE_VM_NAME" "$xml" "$mode"
+            return
+            ;;
+        *)
+            log_error "attach failed: $xml $mode"
+            log_error "$output"
+            return 1
+            ;;
+    esac
+}
+
+virsh_attach "$CHANNEL_XML" --config
+virsh_attach "$VIRTIO_XML" --config
+
+if virsh -c "$WINBRIDGE_LIBVIRT_URI" domstate "$WINBRIDGE_VM_NAME" | grep -qi running; then
+    virsh_attach "$CHANNEL_XML" --live
+    virsh_attach "$VIRTIO_XML" --live || true
 fi
 
 log_info "QEMU guest agent channel/virtio-win ISO attach attempted"
