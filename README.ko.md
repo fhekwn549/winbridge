@@ -2,6 +2,8 @@
 
 > 웹으로 해결되지 않는 Windows 전용 앱을 리눅스에서 네이티브 앱처럼 실행합니다.
 
+winbridge는 리눅스 카카오톡 / 우분투 카카오톡 사용을 위한 브리지입니다. 공식 Windows KakaoTalk 클라이언트를 관리형 Windows VM 안에서 실행하고, Ubuntu에서 네이티브 데스크톱 앱처럼 열 수 있게 합니다.
+
 영문 문서: [README.md](README.md)
 
 **현재 상태:** Ubuntu 22.04.5 LTS가 검증된 호스트 대상입니다. Windows Server 2022 Evaluation VM을 자동 구성하고, Windows용 KakaoTalk을 작은 Linux 앱 창처럼 띄우며, 앱 런처와 트레이 동작, 키보드 입력, 양방향 텍스트 클립보드, 게스트 링크의 Linux 호스트 브라우저 전달을 지원합니다.
@@ -9,6 +11,8 @@
 Ubuntu 24.04 LTS는 동작 가능성이 높지만 아직 직접 검증 전입니다: <https://github.com/fhekwn549/winbridge/issues/2>.
 
 현재 MVP는 **KakaoTalk만** 지원합니다. 여러 앱을 TOML 프로파일로 관리하는 기능은 P2A 범위 밖입니다.
+
+이 프로젝트가 다루는 검색 의도: 리눅스 카카오톡, 우분투 카카오톡, Ubuntu KakaoTalk, Linux KakaoTalk, KakaoTalk on Linux, KakaoTalk on Ubuntu.
 
 ## 개요
 

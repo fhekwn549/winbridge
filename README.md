@@ -2,6 +2,8 @@
 
 > Run Windows-only apps that have no viable web alternative as if they were native Linux apps.
 
+winbridge is a Linux KakaoTalk / Ubuntu KakaoTalk bridge. It runs the official Windows KakaoTalk client in a managed Windows VM and opens it from Ubuntu like a native desktop app.
+
 Korean documentation: [README.ko.md](README.ko.md)
 
 **Current status:** Ubuntu 22.04.5 LTS is the verified host target. winbridge can provision a Windows Server 2022 Evaluation VM, run Windows KakaoTalk, expose it through a small Linux app window, provide app launchers and tray actions, handle keyboard input, bridge text clipboard in both directions, and forward guest browser links to the Linux host.
@@ -9,6 +11,8 @@ Korean documentation: [README.ko.md](README.ko.md)
 Ubuntu 24.04 LTS is expected to work but remains pending direct validation: <https://github.com/fhekwn549/winbridge/issues/2>.
 
 The MVP supports **KakaoTalk only**. Multi-app profiles are out of scope for P2A.
+
+Common search terms this project targets: KakaoTalk on Linux, KakaoTalk on Ubuntu, Linux KakaoTalk, Ubuntu KakaoTalk, 리눅스 카카오톡, 우분투 카카오톡.
 
 ## What
 
