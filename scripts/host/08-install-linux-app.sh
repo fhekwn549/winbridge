@@ -64,7 +64,7 @@ if command -v update-desktop-database >/dev/null 2>&1; then
 fi
 
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-    gtk-update-icon-cache -q "$HOME/.local/share/icons/hicolor" >/dev/null 2>&1 || true
+    gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" >/dev/null 2>&1 || true
 fi
 
 log_info "Linux app installed:"
