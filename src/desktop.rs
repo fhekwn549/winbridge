@@ -20,6 +20,12 @@ pub struct InstalledDesktopEntry {
     pub autostart_entry_path: PathBuf,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UninstalledDesktopEntry {
+    pub removed_paths: Vec<PathBuf>,
+    pub missing_paths: Vec<PathBuf>,
+}
+
 pub fn kakaotalk_desktop_entry(winbridge_executable: &Path) -> String {
     format!(
         "[Desktop Entry]\n\
@@ -57,6 +63,19 @@ pub fn install_kakaotalk_desktop_entry(
         base_dirs.config_dir(),
         base_dirs.executable_dir(),
         winbridge_executable,
+    )
+}
+
+pub fn uninstall_kakaotalk_desktop_entry() -> WinbridgeResult<UninstalledDesktopEntry> {
+    let Some(base_dirs) = directories::BaseDirs::new() else {
+        return Err(WinbridgeError::Other(anyhow::anyhow!(
+            "사용자 데이터 디렉터리를 확인할 수 없습니다"
+        )));
+    };
+    uninstall_kakaotalk_desktop_entry_in(
+        base_dirs.data_local_dir(),
+        base_dirs.config_dir(),
+        base_dirs.executable_dir(),
     )
 }
 
@@ -115,6 +134,46 @@ pub fn install_kakaotalk_desktop_entry_in(
         icon_path,
         command_path,
         autostart_entry_path,
+    })
+}
+
+pub fn uninstall_kakaotalk_desktop_entry_in(
+    data_local_dir: &Path,
+    config_dir: &Path,
+    executable_dir: Option<&Path>,
+) -> WinbridgeResult<UninstalledDesktopEntry> {
+    let mut paths = vec![
+        data_local_dir
+            .join("applications")
+            .join(KAKAOTALK_DESKTOP_FILE_NAME),
+        data_local_dir
+            .join("icons")
+            .join("hicolor")
+            .join("256x256")
+            .join("apps")
+            .join(format!("{KAKAOTALK_ICON_NAME}.png")),
+        config_dir
+            .join("autostart")
+            .join(KAKAOTALK_AUTOSTART_FILE_NAME),
+    ];
+    if let Some(executable_dir) = executable_dir {
+        paths.push(executable_dir.join(KAKAOTALK_COMMAND_NAME));
+    }
+
+    let mut removed_paths = Vec::new();
+    let mut missing_paths = Vec::new();
+    for path in paths {
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+            removed_paths.push(path);
+        } else {
+            missing_paths.push(path);
+        }
+    }
+
+    Ok(UninstalledDesktopEntry {
+        removed_paths,
+        missing_paths,
     })
 }
 
@@ -262,5 +321,48 @@ mod tests {
         let icon = image::open(installed.icon_path).unwrap();
         assert_eq!(icon.width(), 256);
         assert_eq!(icon.height(), 256);
+    }
+
+    #[test]
+    fn uninstaller_removes_desktop_entry_outputs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data_local_dir = tmp.path().join("share");
+        let config_dir = tmp.path().join("config");
+        let executable_dir = tmp.path().join("bin");
+        let installed = install_kakaotalk_desktop_entry_in(
+            &data_local_dir,
+            &config_dir,
+            Some(&executable_dir),
+            Path::new("/opt/winbridge/bin/winbridge"),
+        )
+        .unwrap();
+
+        let uninstalled = uninstall_kakaotalk_desktop_entry_in(
+            &data_local_dir,
+            &config_dir,
+            Some(&executable_dir),
+        )
+        .unwrap();
+
+        assert_eq!(uninstalled.removed_paths.len(), 4);
+        assert!(uninstalled.missing_paths.is_empty());
+        assert!(!installed.desktop_entry_path.exists());
+        assert!(!installed.icon_path.exists());
+        assert!(!installed.command_path.exists());
+        assert!(!installed.autostart_entry_path.exists());
+    }
+
+    #[test]
+    fn uninstaller_reports_missing_outputs_without_failing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let uninstalled = uninstall_kakaotalk_desktop_entry_in(
+            &tmp.path().join("share"),
+            &tmp.path().join("config"),
+            Some(&tmp.path().join("bin")),
+        )
+        .unwrap();
+
+        assert!(uninstalled.removed_paths.is_empty());
+        assert_eq!(uninstalled.missing_paths.len(), 4);
     }
 }

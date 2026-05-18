@@ -38,6 +38,9 @@ pub enum Command {
         exec: Option<PathBuf>,
     },
 
+    /// Remove the KakaoTalk desktop launcher and icon for the current user.
+    UninstallDesktopEntry,
+
     /// Print the VM state.
     Status,
 

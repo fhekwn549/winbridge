@@ -545,6 +545,12 @@ fn main() {
                     std::process::exit(1);
                 }
             }
+            Some(cli::Command::UninstallDesktopEntry) => {
+                if let Err(err) = run_uninstall_desktop_entry() {
+                    eprintln!("desktop entry 제거 실패: {err}");
+                    std::process::exit(1);
+                }
+            }
         }
     });
 }
@@ -1149,6 +1155,19 @@ fn run_install_desktop_entry(exec: Option<std::path::PathBuf>) -> error::Winbrid
         installed.command_path.display(),
         installed.autostart_entry_path.display()
     );
+    Ok(())
+}
+
+fn run_uninstall_desktop_entry() -> error::WinbridgeResult<()> {
+    let uninstalled = desktop::uninstall_kakaotalk_desktop_entry()?;
+
+    println!("KakaoTalk desktop entry removed:");
+    for path in uninstalled.removed_paths {
+        println!("  removed {}", path.display());
+    }
+    for path in uninstalled.missing_paths {
+        println!("  already absent {}", path.display());
+    }
     Ok(())
 }
 
