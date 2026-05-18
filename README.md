@@ -4,7 +4,9 @@
 
 Korean documentation: [README.ko.md](README.ko.md)
 
-**Current status:** P2A proof of concept is complete. The project can provision a Windows Server 2022 Evaluation VM, run Windows KakaoTalk, expose it through a small Linux app window, provide a tray launcher, handle keyboard input, and bridge text clipboard in both directions.
+**Current status:** Ubuntu 22.04.5 LTS is the verified host target. winbridge can provision a Windows Server 2022 Evaluation VM, run Windows KakaoTalk, expose it through a small Linux app window, provide app launchers and tray actions, handle keyboard input, bridge text clipboard in both directions, and forward guest browser links to the Linux host.
+
+Ubuntu 24.04 LTS is expected to work but remains pending direct validation: <https://github.com/fhekwn549/winbridge/issues/2>.
 
 The MVP supports **KakaoTalk only**. Multi-app profiles are out of scope for P2A.
 
@@ -46,6 +48,28 @@ P2A uses a VM-based fallback instead of RemoteApp. RemoteApp-style single-window
 
 For terminal-first installation and daily-use commands, see [INSTALL.md](INSTALL.md).
 
+### Release Package
+
+The current release package is published at:
+
+- <https://github.com/fhekwn549/winbridge/releases/tag/v0.1.0>
+
+Install the downloaded package:
+
+```bash
+sudo apt install ./winbridge_0.1.0_amd64.deb
+```
+
+An early unsigned APT repository is also available:
+
+```text
+deb [arch=amd64 trusted=yes] https://fhekwn549.github.io/winbridge stable main
+```
+
+The APT repository is unsigned for now and should be treated as early validation infrastructure.
+
+### Source Install
+
 The Linux-side app installer places `winbridge` at `~/.local/bin/winbridge` and installs a winbridge launcher plus login autostart entry:
 
 ```bash
@@ -54,7 +78,7 @@ scripts/host/08-install-linux-app.sh
 
 The launcher runs `winbridge start --mode app`, so clicking the winbridge icon can start or resume the VM before opening KakaoTalk.
 
-### Debian Package
+### Build A Debian Package
 
 Build a local `.deb` package:
 
@@ -63,6 +87,12 @@ scripts/release/build-deb.sh
 ```
 
 The package is written to `dist/winbridge_<version>_amd64.deb` and installs the binary, desktop launchers, and icon under `/usr`. Build release packages on Ubuntu 22.04 when targeting both Ubuntu 22.04 and newer systems, because that keeps the runtime libc baseline compatible.
+
+Build the static APT repository:
+
+```bash
+scripts/release/build-apt-repo.sh
+```
 
 Existing VMs can retrofit QEMU guest agent support:
 
@@ -113,7 +143,7 @@ Windows protects the final `http`/`https` default-app choice with a `UserChoice`
 ## Architecture
 
 ```text
-Linux host (Ubuntu 22.04)
+Linux host (Ubuntu 22.04.5 LTS verified, Ubuntu 24.04 pending)
   install.sh
     -> libvirt qemu:///system
     -> Windows Server 2022 Evaluation VM
@@ -135,11 +165,13 @@ Design constraints:
 - KakaoTalk only for P2A.
 - VM state and KakaoTalk data live inside the qcow2 disk.
 - Host shared persistence such as virtiofs is deferred.
-- Installation is handled by bash scripts; daily use is handled by the Rust manager.
+- Source installation is handled by bash scripts; release installation is handled by the Debian package. Daily use is handled by the Rust manager.
 
 ## Known Limits
 
 - KakaoTalk only.
+- Ubuntu 24.04 support is not confirmed until issue #2 has direct execution evidence.
+- The APT repository is unsigned and uses `trusted=yes` during early validation.
 - Automatic idle suspend is available through optional config but disabled by default.
 - No Windows evaluation expiration management.
 - Tray action result notifications are local host notifications; no KakaoTalk message notification bridge, badge bridge, or global hotkey support yet.
@@ -147,9 +179,9 @@ Design constraints:
 
 ## Roadmap
 
-- **P2A:** Windows Server 2022 unattended install, winbridge app window, tray/launcher, keyboard input, and bidirectional text clipboard.
-- **P2B:** VM idle management, expiration management, notification bridge, persistence improvements, and candidate support for additional apps.
-- **Long term:** Replace the proof-of-concept scripts with a more complete Rust-managed desktop integration.
+- **Current:** Ubuntu 22.04.5 verified release package, GitHub Release `.deb`, early unsigned APT repository, app launcher/tray flow, URL forwarding, diagnostics, and repair commands.
+- **Next:** Validate Ubuntu 24.04, add signed APT repository metadata, improve setup/doctor automation, and tighten package install checks.
+- **Long term:** Replace more host setup scripts with Rust-managed desktop and VM integration.
 
 ## Legal Notice
 
