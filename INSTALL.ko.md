@@ -159,35 +159,31 @@ export WINBRIDGE_ISO_SHA256="$(sha256sum "$WINBRIDGE_ISO_DEST" | awk '{print $1}
 ## 7. winbridge 빌드
 
 ```bash
-cargo build --release
+scripts/host/08-install-linux-app.sh
 ```
 
-## 8. 데스크톱 런처 설치
+이 명령은 `target/release/winbridge`를 빌드하고 `~/.local/bin/winbridge`에 설치한 뒤 KakaoTalk 앱 런처와 로그인 자동시작 항목을 등록합니다.
 
-```bash
-./target/release/winbridge install-desktop-entry --exec "$PWD/target/release/winbridge"
-```
+GNOME 앱 목록이나 Dock에서 KakaoTalk 아이콘이 보이지 않으면 한 번 로그아웃 후 다시 로그인하세요. 런처는 `~/.local/bin/winbridge start --mode app`을 실행하므로 VM이 꺼져 있어도 아이콘 클릭으로 VM 시작 또는 재개 후 KakaoTalk을 열 수 있습니다.
 
-GNOME 앱 목록이나 Dock에서 KakaoTalk 아이콘이 보이지 않으면 한 번 로그아웃 후 다시 로그인하세요.
-
-## 9. 게스트 링크를 호스트 브라우저에서 열기
+## 8. 게스트 링크를 호스트 브라우저에서 열기
 
 새 VM 설치는 Windows 안에 `Winbridge URL Forwarder`를 이미 등록합니다. 기존 VM이거나 winbridge 업데이트 뒤 갱신하려면 아래 명령을 실행합니다.
 
 ```bash
-./target/release/winbridge install-url-forwarder
+winbridge install-url-forwarder
 ```
 
 그 다음 Windows VM 안에서 Settings -> Apps -> Default apps를 열고 `http`와 `https`를 각각 `Winbridge URL Forwarder`로 선택합니다.
 
 Windows는 최종 기본앱 선택을 `UserChoice` hash로 보호합니다. winbridge는 앱 후보 등록까지 자동 처리하지만, `http`/`https` 최종 선택은 수동으로 한 번 해야 합니다. 재부팅 뒤 Edge로 돌아가면 같은 선택을 한 번 다시 적용하세요.
 
-## 10. 실행
+## 9. 실행
 
 트레이 매니저를 실행합니다.
 
 ```bash
-./target/release/winbridge
+winbridge
 ```
 
 상단 트레이 아이콘에서 `Open KakaoTalk`을 누르거나, 앱 목록에서 KakaoTalk을 실행합니다.
@@ -195,42 +191,42 @@ Windows는 최종 기본앱 선택을 `UserChoice` hash로 보호합니다. winb
 터미널에서 바로 KakaoTalk 창만 열 수도 있습니다.
 
 ```bash
-./target/release/winbridge start --mode app
+winbridge start --mode app
 ```
 
 Windows 전체 화면 설정이 필요하면 desktop 모드를 사용합니다.
 
 ```bash
-./target/release/winbridge start --mode desktop
+winbridge start --mode desktop
 ```
 
-## 11. 종료와 재실행
+## 10. 종료와 재실행
 
 KakaoTalk RDP 창만 닫아도 VM은 백그라운드에서 계속 실행됩니다.
 
 VM을 일시정지하려면:
 
 ```bash
-./target/release/winbridge stop
+winbridge stop
 ```
 
 VM 상태 확인:
 
 ```bash
-./target/release/winbridge status
+winbridge status
 ```
 
 진단:
 
 ```bash
-./target/release/winbridge doctor
+winbridge doctor
 ```
 
 KakaoTalk 창이나 배경화면이 깨졌을 때:
 
 ```bash
-./target/release/winbridge repair-kakao
-./target/release/winbridge repair-wallpaper
+winbridge repair-kakao
+winbridge repair-wallpaper
 ```
 
 `doctor`의 `guest service-session ...` 항목은 qemu-ga 서비스 세션에서 본 값입니다. 보이는 RDP 창이 정상이라면 해당 경고만으로 복구할 필요는 없습니다.
@@ -256,16 +252,17 @@ idle-timeout-minutes = 30
 
 ```bash
 pkill -f 'target/release/winbridge'
-./target/release/winbridge
+pkill -f '.local/bin/winbridge'
+winbridge
 ```
 
-## 12. 작업표시줄이 다시 보일 때
+## 11. 작업표시줄이 다시 보일 때
 
 새 VM 설치 과정에서는 Windows 작업표시줄 자동 숨김이 자동 적용됩니다.
 
 이미 설치된 VM에서 작업표시줄이 계속 보이면 Windows PowerShell에서 `scripts/windows/position-kakaotalk.ps1` 내용을 한 번 실행하세요.
 
-## 13. 제거
+## 12. 제거
 
 확인 질문을 보면서 제거:
 

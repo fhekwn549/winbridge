@@ -46,6 +46,14 @@ P2A uses a VM-based fallback instead of RemoteApp. RemoteApp-style single-window
 
 For terminal-first installation and daily-use commands, see [INSTALL.md](INSTALL.md).
 
+The Linux-side app installer places `winbridge` at `~/.local/bin/winbridge` and installs a KakaoTalk launcher plus login autostart entry:
+
+```bash
+scripts/host/08-install-linux-app.sh
+```
+
+The launcher runs `winbridge start --mode app`, so clicking the KakaoTalk icon can start or resume the VM before opening KakaoTalk.
+
 Existing VMs can retrofit QEMU guest agent support:
 
 ```bash

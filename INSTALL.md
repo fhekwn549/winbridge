@@ -159,35 +159,31 @@ When installation finishes, an RDP window opens. On first use, pair or authentic
 ## 7. Build winbridge
 
 ```bash
-cargo build --release
+scripts/host/08-install-linux-app.sh
 ```
 
-## 8. Install the Desktop Launcher
+This builds `target/release/winbridge`, installs it to `~/.local/bin/winbridge`, installs the KakaoTalk app launcher, and registers the same launcher for login autostart.
 
-```bash
-./target/release/winbridge install-desktop-entry --exec "$PWD/target/release/winbridge"
-```
+If the KakaoTalk icon does not appear in the GNOME app list or Dock, log out and log back in once. The launcher runs `~/.local/bin/winbridge start --mode app`, so clicking it can start or resume the VM even when the VM is not already running.
 
-If the KakaoTalk icon does not appear in the GNOME app list or Dock, log out and log back in once.
-
-## 9. Open Guest Links on the Host Browser
+## 8. Open Guest Links on the Host Browser
 
 New VM installs already register `Winbridge URL Forwarder` inside Windows. For an existing VM or after updating winbridge, refresh it with:
 
 ```bash
-./target/release/winbridge install-url-forwarder
+winbridge install-url-forwarder
 ```
 
 Then, inside the Windows VM, open Settings -> Apps -> Default apps and choose `Winbridge URL Forwarder` for both `http` and `https`.
 
 Windows protects this final default-app choice with a `UserChoice` hash. winbridge registers the app candidate automatically, but the final `http`/`https` selection must be done manually once. If Windows falls back to Edge after a reboot, repeat the same selection.
 
-## 10. Run
+## 9. Run
 
 Start the tray manager.
 
 ```bash
-./target/release/winbridge
+winbridge
 ```
 
 Click `Open KakaoTalk` from the top tray icon, or launch KakaoTalk from the app list.
@@ -195,42 +191,42 @@ Click `Open KakaoTalk` from the top tray icon, or launch KakaoTalk from the app 
 You can also open only the KakaoTalk window from the terminal.
 
 ```bash
-./target/release/winbridge start --mode app
+winbridge start --mode app
 ```
 
 Use desktop mode when you need the full Windows desktop.
 
 ```bash
-./target/release/winbridge start --mode desktop
+winbridge start --mode desktop
 ```
 
-## 11. Stop and Restart
+## 10. Stop and Restart
 
 Closing only the KakaoTalk RDP window keeps the VM running in the background.
 
 To pause the VM:
 
 ```bash
-./target/release/winbridge stop
+winbridge stop
 ```
 
 Check VM status:
 
 ```bash
-./target/release/winbridge status
+winbridge status
 ```
 
 Run diagnostics:
 
 ```bash
-./target/release/winbridge doctor
+winbridge doctor
 ```
 
 Repair KakaoTalk window placement or wallpaper state:
 
 ```bash
-./target/release/winbridge repair-kakao
-./target/release/winbridge repair-wallpaper
+winbridge repair-kakao
+winbridge repair-wallpaper
 ```
 
 `doctor` entries named `guest service-session ...` come from the qemu-ga Windows service session. If the visible RDP window is healthy, those warnings alone do not require repair.
@@ -256,16 +252,17 @@ Restart the tray process:
 
 ```bash
 pkill -f 'target/release/winbridge'
-./target/release/winbridge
+pkill -f '.local/bin/winbridge'
+winbridge
 ```
 
-## 12. If the Windows Taskbar Reappears
+## 11. If the Windows Taskbar Reappears
 
 New VM installations apply Windows taskbar auto-hide automatically.
 
 If the taskbar keeps showing in an existing VM, run the contents of `scripts/windows/position-kakaotalk.ps1` once in Windows PowerShell.
 
-## 13. Uninstall
+## 12. Uninstall
 
 Uninstall with confirmation prompts:
 

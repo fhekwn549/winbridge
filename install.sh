@@ -36,7 +36,8 @@ usage() {
   5. 03-create-vm.sh (OEM ISO + qcow2 + libvirt define + start)
   6. 04-wait-for-install.sh (RDP 응답 + 재부팅 안정화 대기, ~30~50분)
   7. 05-verify-guest.sh (RDP 인증/세션 가능 확인)
-  8. 마지막에 RDP 창 띄움 — 카톡 단독 표시 시각 확인 + 폰 페어링
+  8. 08-install-linux-app.sh (Linux 앱 아이콘 + 로그인 자동시작 설치)
+  9. 마지막에 RDP 창 띄움 — 카톡 단독 표시 시각 확인 + 폰 페어링
 USAGE
 }
 
@@ -84,6 +85,7 @@ run_step "02-setup-libvirt"       "02-setup-libvirt.sh"
 run_step "03-create-vm"           "03-create-vm.sh"
 run_step "04-wait-for-install"    "04-wait-for-install.sh"
 run_step "05-verify-guest"        "05-verify-guest.sh"
+run_step "08-install-linux-app"   "08-install-linux-app.sh"
 
 # 8. 마지막에 RDP 창 띄움 (시각 확인 + 페어링)
 log_info ""
@@ -128,11 +130,11 @@ printf '%s\n' "$WINBRIDGE_ADMIN_PASSWORD" | "${RDP[@]}" /v:"$WINBRIDGE_VM_IP:338
     /cert:ignore /kbd:0x00000409 "${RDP_RES_OPT[@]}" || true
 
 log_info "RDP 창 종료. install.sh 정상 종료."
-log_info "VM은 계속 실행 중입니다. 종료/일시정지는 P2B의 stop-session.sh로 (현재는 'sudo virsh -c qemu:///system shutdown winbridge-srv2022')"
+log_info "VM은 계속 실행 중입니다. 종료/일시정지는 'winbridge stop'으로 처리할 수 있습니다."
 
-RUST_BIN="$REPO_ROOT/target/release/winbridge"
+RUST_BIN="$HOME/.local/bin/winbridge"
 if [[ -x "$RUST_BIN" ]]; then
     log_info ""
-    log_info "Rust manager 발견됨. 다음부터는 다음 명령으로 즉시 카톡 실행:"
-    log_info "  $RUST_BIN"
+    log_info "Linux 앱 설치됨. 다음부터는 GNOME 앱 아이콘 또는 다음 명령으로 즉시 카톡 실행:"
+    log_info "  $RUST_BIN start --mode app"
 fi
