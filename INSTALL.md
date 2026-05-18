@@ -162,9 +162,9 @@ When installation finishes, an RDP window opens. On first use, pair or authentic
 scripts/host/08-install-linux-app.sh
 ```
 
-This builds `target/release/winbridge`, installs it to `~/.local/bin/winbridge`, installs the KakaoTalk app launcher, and registers the same launcher for login autostart.
+This builds `target/release/winbridge`, installs it to `~/.local/bin/winbridge`, installs the winbridge app launcher, and registers the same launcher for login autostart.
 
-If the KakaoTalk icon does not appear in the GNOME app list or Dock, log out and log back in once. The launcher runs `~/.local/bin/winbridge start --mode app`, so clicking it can start or resume the VM even when the VM is not already running.
+If the winbridge icon does not appear in the GNOME app list or Dock, log out and log back in once. The launcher runs `~/.local/bin/winbridge start --mode app`, so clicking it can start or resume the VM even when the VM is not already running.
 
 ## 8. Open Guest Links on the Host Browser
 

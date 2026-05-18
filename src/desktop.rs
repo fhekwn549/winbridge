@@ -6,11 +6,14 @@ use image::{ExtendedColorType, ImageEncoder};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
-pub const KAKAOTALK_APPLICATION_ID: &str = "dev.winbridge.KakaoTalk";
-pub const KAKAOTALK_AUTOSTART_FILE_NAME: &str = "dev.winbridge.KakaoTalk.desktop";
+pub const WINBRIDGE_APP_APPLICATION_ID: &str = "dev.winbridge.WinbridgeApp";
+pub const WINBRIDGE_AUTOSTART_FILE_NAME: &str = "dev.winbridge.Winbridge.desktop";
 pub const KAKAOTALK_COMMAND_NAME: &str = "kakaotalk";
-pub const KAKAOTALK_DESKTOP_FILE_NAME: &str = "dev.winbridge.KakaoTalk.desktop";
-pub const KAKAOTALK_ICON_NAME: &str = "winbridge-kakaotalk";
+pub const WINBRIDGE_DESKTOP_FILE_NAME: &str = "dev.winbridge.Winbridge.desktop";
+pub const WINBRIDGE_ICON_NAME: &str = "winbridge";
+const LEGACY_KAKAOTALK_AUTOSTART_FILE_NAME: &str = "dev.winbridge.KakaoTalk.desktop";
+const LEGACY_KAKAOTALK_DESKTOP_FILE_NAME: &str = "dev.winbridge.KakaoTalk.desktop";
+const LEGACY_KAKAOTALK_ICON_NAME: &str = "winbridge-kakaotalk";
 
 pub(crate) const KAKAOTALK_ICON_PNG: &[u8] =
     include_bytes!("../assets/icons/winbridge-kakaotalk.png");
@@ -34,14 +37,14 @@ pub fn kakaotalk_desktop_entry(winbridge_executable: &Path) -> String {
         "[Desktop Entry]\n\
 Type=Application\n\
 Version=1.0\n\
-Name=KakaoTalk\n\
+Name=winbridge\n\
 Comment=Open Windows KakaoTalk through winbridge\n\
 Exec={} start --mode app --display stable-slots\n\
-Icon={KAKAOTALK_ICON_NAME}\n\
+Icon={WINBRIDGE_ICON_NAME}\n\
 Terminal=false\n\
 Categories=Network;InstantMessaging;\n\
 StartupNotify=true\n\
-StartupWMClass={KAKAOTALK_APPLICATION_ID}\n",
+StartupWMClass={WINBRIDGE_APP_APPLICATION_ID}\n",
         quote_exec_path(winbridge_executable)
     )
 }
@@ -90,13 +93,13 @@ pub fn install_kakaotalk_desktop_entry_in(
 ) -> WinbridgeResult<InstalledDesktopEntry> {
     let desktop_entry_path = data_local_dir
         .join("applications")
-        .join(KAKAOTALK_DESKTOP_FILE_NAME);
+        .join(WINBRIDGE_DESKTOP_FILE_NAME);
     let icon_path = data_local_dir
         .join("icons")
         .join("hicolor")
         .join("256x256")
         .join("apps")
-        .join(format!("{KAKAOTALK_ICON_NAME}.png"));
+        .join(format!("{WINBRIDGE_ICON_NAME}.png"));
     let Some(executable_dir) = executable_dir else {
         return Err(WinbridgeError::Other(anyhow::anyhow!(
             "사용자 실행 파일 디렉터리를 확인할 수 없습니다"
@@ -105,7 +108,7 @@ pub fn install_kakaotalk_desktop_entry_in(
     let command_path = executable_dir.join(KAKAOTALK_COMMAND_NAME);
     let autostart_entry_path = config_dir
         .join("autostart")
-        .join(KAKAOTALK_AUTOSTART_FILE_NAME);
+        .join(WINBRIDGE_AUTOSTART_FILE_NAME);
 
     if let Some(parent) = desktop_entry_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -119,6 +122,8 @@ pub fn install_kakaotalk_desktop_entry_in(
     if let Some(parent) = autostart_entry_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
+
+    remove_legacy_desktop_entry_outputs(data_local_dir, config_dir)?;
 
     std::fs::write(
         &desktop_entry_path,
@@ -148,16 +153,28 @@ pub fn uninstall_kakaotalk_desktop_entry_in(
     let mut paths = vec![
         data_local_dir
             .join("applications")
-            .join(KAKAOTALK_DESKTOP_FILE_NAME),
+            .join(WINBRIDGE_DESKTOP_FILE_NAME),
+        data_local_dir
+            .join("applications")
+            .join(LEGACY_KAKAOTALK_DESKTOP_FILE_NAME),
         data_local_dir
             .join("icons")
             .join("hicolor")
             .join("256x256")
             .join("apps")
-            .join(format!("{KAKAOTALK_ICON_NAME}.png")),
+            .join(format!("{WINBRIDGE_ICON_NAME}.png")),
+        data_local_dir
+            .join("icons")
+            .join("hicolor")
+            .join("256x256")
+            .join("apps")
+            .join(format!("{LEGACY_KAKAOTALK_ICON_NAME}.png")),
         config_dir
             .join("autostart")
-            .join(KAKAOTALK_AUTOSTART_FILE_NAME),
+            .join(WINBRIDGE_AUTOSTART_FILE_NAME),
+        config_dir
+            .join("autostart")
+            .join(LEGACY_KAKAOTALK_AUTOSTART_FILE_NAME),
     ];
     if let Some(executable_dir) = executable_dir {
         paths.push(executable_dir.join(KAKAOTALK_COMMAND_NAME));
@@ -178,6 +195,33 @@ pub fn uninstall_kakaotalk_desktop_entry_in(
         removed_paths,
         missing_paths,
     })
+}
+
+fn remove_legacy_desktop_entry_outputs(
+    data_local_dir: &Path,
+    config_dir: &Path,
+) -> std::io::Result<()> {
+    for path in [
+        data_local_dir
+            .join("applications")
+            .join(LEGACY_KAKAOTALK_DESKTOP_FILE_NAME),
+        data_local_dir
+            .join("icons")
+            .join("hicolor")
+            .join("256x256")
+            .join("apps")
+            .join(format!("{LEGACY_KAKAOTALK_ICON_NAME}.png")),
+        config_dir
+            .join("autostart")
+            .join(LEGACY_KAKAOTALK_AUTOSTART_FILE_NAME),
+    ] {
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(err),
+        }
+    }
+    Ok(())
 }
 
 pub fn kakaotalk_command(winbridge_executable: &Path) -> String {
@@ -258,12 +302,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn desktop_entry_uses_kakaotalk_identity_and_icon() {
+    fn desktop_entry_uses_winbridge_identity_and_icon() {
         let entry = kakaotalk_desktop_entry(Path::new("/opt/winbridge/bin/winbridge"));
 
-        assert!(entry.contains("Name=KakaoTalk"));
-        assert!(entry.contains("Icon=winbridge-kakaotalk"));
-        assert!(entry.contains("StartupWMClass=dev.winbridge.KakaoTalk"));
+        assert!(entry.contains("Name=winbridge"));
+        assert!(entry.contains("Icon=winbridge"));
+        assert!(entry.contains("StartupWMClass=dev.winbridge.WinbridgeApp"));
         assert!(entry.contains(
             "Exec=\"/opt/winbridge/bin/winbridge\" start --mode app --display stable-slots"
         ));
@@ -279,10 +323,10 @@ mod tests {
     }
 
     #[test]
-    fn autostart_entry_launches_kakaotalk_on_login() {
+    fn autostart_entry_launches_winbridge_on_login() {
         let entry = kakaotalk_autostart_entry(Path::new("/opt/winbridge/bin/winbridge"));
 
-        assert!(entry.contains("Name=KakaoTalk"));
+        assert!(entry.contains("Name=winbridge"));
         assert!(entry.contains("X-GNOME-Autostart-enabled=true"));
         assert!(entry.contains(
             "Exec=\"/opt/winbridge/bin/winbridge\" start --mode app --display stable-slots"
@@ -328,7 +372,7 @@ mod tests {
             installed.autostart_entry_path,
             config_dir
                 .join("autostart")
-                .join("dev.winbridge.KakaoTalk.desktop")
+                .join("dev.winbridge.Winbridge.desktop")
         );
         let autostart = std::fs::read_to_string(installed.autostart_entry_path).unwrap();
         assert!(autostart.contains("X-GNOME-Autostart-enabled=true"));
@@ -384,7 +428,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(uninstalled.removed_paths.len(), 4);
-        assert!(uninstalled.missing_paths.is_empty());
+        assert_eq!(uninstalled.missing_paths.len(), 3);
         assert!(!installed.desktop_entry_path.exists());
         assert!(!installed.icon_path.exists());
         assert!(!installed.command_path.exists());
@@ -402,6 +446,6 @@ mod tests {
         .unwrap();
 
         assert!(uninstalled.removed_paths.is_empty());
-        assert_eq!(uninstalled.missing_paths.len(), 4);
+        assert_eq!(uninstalled.missing_paths.len(), 7);
     }
 }

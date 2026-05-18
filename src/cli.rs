@@ -31,14 +31,14 @@ pub enum Command {
         shutdown: bool,
     },
 
-    /// Install the KakaoTalk desktop launcher and icon for the current user.
+    /// Install the winbridge desktop launcher and icon for the current user.
     InstallDesktopEntry {
         /// winbridge executable path to put in the desktop launcher.
         #[arg(long)]
         exec: Option<PathBuf>,
     },
 
-    /// Remove the KakaoTalk desktop launcher and icon for the current user.
+    /// Remove the winbridge desktop launcher and icon for the current user.
     UninstallDesktopEntry,
 
     /// Print the VM state.

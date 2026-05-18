@@ -1047,7 +1047,7 @@ async fn run_start(
 
 fn gtk_application_id(mode: cli::WindowMode) -> &'static str {
     match mode {
-        cli::WindowMode::App => desktop::KAKAOTALK_APPLICATION_ID,
+        cli::WindowMode::App => desktop::WINBRIDGE_APP_APPLICATION_ID,
         cli::WindowMode::Desktop => WINBRIDGE_APPLICATION_ID,
     }
 }
@@ -1219,7 +1219,7 @@ fn run_install_desktop_entry(exec: Option<std::path::PathBuf>) -> error::Winbrid
     let installed = desktop::install_kakaotalk_desktop_entry(&executable)?;
 
     println!(
-        "KakaoTalk desktop entry installed:\n  {}\n  {}\n  {}\n  {}",
+        "winbridge desktop entry installed:\n  {}\n  {}\n  {}\n  {}",
         installed.desktop_entry_path.display(),
         installed.icon_path.display(),
         installed.command_path.display(),
@@ -1231,7 +1231,7 @@ fn run_install_desktop_entry(exec: Option<std::path::PathBuf>) -> error::Winbrid
 fn run_uninstall_desktop_entry() -> error::WinbridgeResult<()> {
     let uninstalled = desktop::uninstall_kakaotalk_desktop_entry()?;
 
-    println!("KakaoTalk desktop entry removed:");
+    println!("winbridge desktop entry removed:");
     for path in uninstalled.removed_paths {
         println!("  removed {}", path.display());
     }
@@ -1539,10 +1539,10 @@ mod tests {
     }
 
     #[test]
-    fn app_mode_uses_kakaotalk_application_identity() {
+    fn app_mode_uses_winbridge_application_identity() {
         assert_eq!(
             gtk_application_id(cli::WindowMode::App),
-            desktop::KAKAOTALK_APPLICATION_ID
+            desktop::WINBRIDGE_APP_APPLICATION_ID
         );
         assert_eq!(
             gtk_application_id(cli::WindowMode::Desktop),
@@ -1551,13 +1551,13 @@ mod tests {
     }
 
     #[test]
-    fn kakaotalk_desktop_entry_launches_app_mode_with_icon_identity() {
+    fn winbridge_desktop_entry_launches_app_mode_with_icon_identity() {
         let entry =
             desktop::kakaotalk_desktop_entry(std::path::Path::new("/opt/winbridge/bin/winbridge"));
 
-        assert!(entry.contains("Name=KakaoTalk"));
-        assert!(entry.contains("Icon=winbridge-kakaotalk"));
-        assert!(entry.contains("StartupWMClass=dev.winbridge.KakaoTalk"));
+        assert!(entry.contains("Name=winbridge"));
+        assert!(entry.contains("Icon=winbridge"));
+        assert!(entry.contains("StartupWMClass=dev.winbridge.WinbridgeApp"));
         assert!(entry.contains(
             "Exec=\"/opt/winbridge/bin/winbridge\" start --mode app --display stable-slots"
         ));

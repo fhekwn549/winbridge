@@ -83,7 +83,7 @@ impl Tray for KakaoTalkTray {
     }
 
     fn id(&self) -> String {
-        desktop::KAKAOTALK_ICON_NAME.to_string()
+        desktop::WINBRIDGE_ICON_NAME.to_string()
     }
 
     fn icon_name(&self) -> String {
@@ -95,7 +95,7 @@ impl Tray for KakaoTalkTray {
     }
 
     fn title(&self) -> String {
-        "KakaoTalk".to_string()
+        "winbridge".to_string()
     }
 
     fn activate(&mut self, _x: i32, _y: i32) {
@@ -164,7 +164,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn kakaotalk_tray_uses_dedicated_icon_and_title() {
+    fn app_tray_uses_winbridge_icon_and_title() {
         let tray = KakaoTalkTray {
             on_open: Arc::new(|| {}),
             on_repair: Arc::new(|| {}),
@@ -172,8 +172,8 @@ mod tests {
         };
 
         assert_eq!(tray.icon_name(), "");
-        assert_eq!(tray.title(), "KakaoTalk");
-        assert_eq!(tray.id(), "winbridge-kakaotalk");
+        assert_eq!(tray.title(), "winbridge");
+        assert_eq!(tray.id(), "winbridge");
         assert_eq!(tray.category(), ksni::Category::Communications);
         assert!(!tray.icon_pixmap().is_empty());
     }

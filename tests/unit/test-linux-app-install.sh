@@ -29,5 +29,9 @@ grep -q 'HOME/.local/bin/winbridge' "$REPO_ROOT/install.sh" \
     || { echo "FAIL: install.sh does not advertise the stable installed binary"; exit 1; }
 grep -q 'WINBRIDGE_BIN="$HOME/.local/bin/winbridge"' "$REPO_ROOT/uninstall.sh" \
     || { echo "FAIL: uninstall.sh does not remove the installed winbridge binary"; exit 1; }
+grep -q 'dev.winbridge.Winbridge.desktop' "$REPO_ROOT/scripts/host/08-install-linux-app.sh" \
+    || { echo "FAIL: Linux app installer does not install a winbridge desktop entry"; exit 1; }
+grep -q 'winbridge.png' "$REPO_ROOT/scripts/host/08-install-linux-app.sh" \
+    || { echo "FAIL: Linux app installer does not install the winbridge icon"; exit 1; }
 
 echo "PASS: test-linux-app-install.sh"

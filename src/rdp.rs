@@ -318,8 +318,8 @@ impl RdpWindowOptions {
 
     pub fn kakaotalk_app() -> Self {
         Self {
-            title: "KakaoTalk".to_string(),
-            icon_name: Some(crate::desktop::KAKAOTALK_ICON_NAME),
+            title: "winbridge".to_string(),
+            icon_name: Some(crate::desktop::WINBRIDGE_ICON_NAME),
             viewport: RdpViewport::new(0, 0, 960, 720),
             desktop_size: RdpDesktopSize::new(960, 720),
             virtual_desktop_layout: None,
@@ -1573,8 +1573,8 @@ mod tests {
     fn app_mode_uses_file_dialog_sized_single_desktop_for_app_window() {
         let options = RdpWindowOptions::kakaotalk_app();
 
-        assert_eq!(options.title, "KakaoTalk");
-        assert_eq!(options.icon_name, Some(crate::desktop::KAKAOTALK_ICON_NAME));
+        assert_eq!(options.title, "winbridge");
+        assert_eq!(options.icon_name, Some(crate::desktop::WINBRIDGE_ICON_NAME));
         assert_eq!(options.display_strategy, RdpDisplayStrategy::StableSlots);
         assert_eq!(options.virtual_desktop_layout, None);
         assert_eq!(options.initial_desktop_size(), (960, 720));
