@@ -16,10 +16,10 @@ Usage: $0 [--help|--dry-run]
 
 Builds the release binary and installs the Linux app integration for this user:
   - $WINBRIDGE_INSTALL_BIN_DIR/$WINBRIDGE_INSTALL_NAME
-  - ~/.local/share/applications/dev.winbridge.Winbridge.desktop
+  - ~/.local/share/applications/dev.winbridge.WinbridgeApp.desktop
   - ~/.local/share/icons/hicolor/256x256/apps/winbridge.png
   - ~/.local/bin/kakaotalk
-  - ~/.config/autostart/dev.winbridge.Winbridge.desktop
+  - ~/.config/autostart/dev.winbridge.WinbridgeApp.desktop
 
 The desktop launcher runs:
   $WINBRIDGE_INSTALL_BIN_DIR/$WINBRIDGE_INSTALL_NAME start --mode app --display stable-slots
@@ -69,6 +69,6 @@ fi
 
 log_info "Linux app installed:"
 log_info "  binary: $INSTALL_BIN"
-log_info "  launcher: ~/.local/share/applications/dev.winbridge.Winbridge.desktop"
-log_info "  autostart: ~/.config/autostart/dev.winbridge.Winbridge.desktop"
+log_info "  launcher: ~/.local/share/applications/dev.winbridge.WinbridgeApp.desktop"
+log_info "  autostart: ~/.config/autostart/dev.winbridge.WinbridgeApp.desktop"
 log_info "You can now launch winbridge from the app icon even when the VM is off."

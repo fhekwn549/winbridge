@@ -127,15 +127,17 @@ fi
 
 # 7. Desktop launcher + terminal command
 log_info "7. desktop launcher..."
-DESKTOP_ENTRY="$HOME/.local/share/applications/dev.winbridge.Winbridge.desktop"
+DESKTOP_ENTRY="$HOME/.local/share/applications/dev.winbridge.WinbridgeApp.desktop"
+LEGACY_WINBRIDGE_DESKTOP_ENTRY="$HOME/.local/share/applications/dev.winbridge.Winbridge.desktop"
 LEGACY_DESKTOP_ENTRY="$HOME/.local/share/applications/dev.winbridge.KakaoTalk.desktop"
 ICON_FILE="$HOME/.local/share/icons/hicolor/256x256/apps/winbridge.png"
 LEGACY_ICON_FILE="$HOME/.local/share/icons/hicolor/256x256/apps/winbridge-kakaotalk.png"
 COMMAND_FILE="$HOME/.local/bin/kakaotalk"
 WINBRIDGE_BIN="$HOME/.local/bin/winbridge"
-AUTOSTART_ENTRY="$HOME/.config/autostart/dev.winbridge.Winbridge.desktop"
+AUTOSTART_ENTRY="$HOME/.config/autostart/dev.winbridge.WinbridgeApp.desktop"
+LEGACY_WINBRIDGE_AUTOSTART_ENTRY="$HOME/.config/autostart/dev.winbridge.Winbridge.desktop"
 LEGACY_AUTOSTART_ENTRY="$HOME/.config/autostart/dev.winbridge.KakaoTalk.desktop"
-for path in "$DESKTOP_ENTRY" "$LEGACY_DESKTOP_ENTRY" "$ICON_FILE" "$LEGACY_ICON_FILE" "$COMMAND_FILE" "$WINBRIDGE_BIN" "$AUTOSTART_ENTRY" "$LEGACY_AUTOSTART_ENTRY"; do
+for path in "$DESKTOP_ENTRY" "$LEGACY_WINBRIDGE_DESKTOP_ENTRY" "$LEGACY_DESKTOP_ENTRY" "$ICON_FILE" "$LEGACY_ICON_FILE" "$COMMAND_FILE" "$WINBRIDGE_BIN" "$AUTOSTART_ENTRY" "$LEGACY_WINBRIDGE_AUTOSTART_ENTRY" "$LEGACY_AUTOSTART_ENTRY"; do
     if [ -e "$path" ]; then
         rm -f "$path"
         log_info "  제거: $path"

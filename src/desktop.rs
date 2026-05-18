@@ -7,10 +7,12 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 pub const WINBRIDGE_APP_APPLICATION_ID: &str = "dev.winbridge.WinbridgeApp";
-pub const WINBRIDGE_AUTOSTART_FILE_NAME: &str = "dev.winbridge.Winbridge.desktop";
+pub const WINBRIDGE_AUTOSTART_FILE_NAME: &str = "dev.winbridge.WinbridgeApp.desktop";
 pub const KAKAOTALK_COMMAND_NAME: &str = "kakaotalk";
-pub const WINBRIDGE_DESKTOP_FILE_NAME: &str = "dev.winbridge.Winbridge.desktop";
+pub const WINBRIDGE_DESKTOP_FILE_NAME: &str = "dev.winbridge.WinbridgeApp.desktop";
 pub const WINBRIDGE_ICON_NAME: &str = "winbridge";
+const LEGACY_WINBRIDGE_AUTOSTART_FILE_NAME: &str = "dev.winbridge.Winbridge.desktop";
+const LEGACY_WINBRIDGE_DESKTOP_FILE_NAME: &str = "dev.winbridge.Winbridge.desktop";
 const LEGACY_KAKAOTALK_AUTOSTART_FILE_NAME: &str = "dev.winbridge.KakaoTalk.desktop";
 const LEGACY_KAKAOTALK_DESKTOP_FILE_NAME: &str = "dev.winbridge.KakaoTalk.desktop";
 const LEGACY_KAKAOTALK_ICON_NAME: &str = "winbridge-kakaotalk";
@@ -156,6 +158,9 @@ pub fn uninstall_kakaotalk_desktop_entry_in(
             .join(WINBRIDGE_DESKTOP_FILE_NAME),
         data_local_dir
             .join("applications")
+            .join(LEGACY_WINBRIDGE_DESKTOP_FILE_NAME),
+        data_local_dir
+            .join("applications")
             .join(LEGACY_KAKAOTALK_DESKTOP_FILE_NAME),
         data_local_dir
             .join("icons")
@@ -172,6 +177,9 @@ pub fn uninstall_kakaotalk_desktop_entry_in(
         config_dir
             .join("autostart")
             .join(WINBRIDGE_AUTOSTART_FILE_NAME),
+        config_dir
+            .join("autostart")
+            .join(LEGACY_WINBRIDGE_AUTOSTART_FILE_NAME),
         config_dir
             .join("autostart")
             .join(LEGACY_KAKAOTALK_AUTOSTART_FILE_NAME),
@@ -206,6 +214,9 @@ fn remove_legacy_desktop_entry_outputs(
             .join("applications")
             .join(LEGACY_KAKAOTALK_DESKTOP_FILE_NAME),
         data_local_dir
+            .join("applications")
+            .join(LEGACY_WINBRIDGE_DESKTOP_FILE_NAME),
+        data_local_dir
             .join("icons")
             .join("hicolor")
             .join("256x256")
@@ -214,6 +225,9 @@ fn remove_legacy_desktop_entry_outputs(
         config_dir
             .join("autostart")
             .join(LEGACY_KAKAOTALK_AUTOSTART_FILE_NAME),
+        config_dir
+            .join("autostart")
+            .join(LEGACY_WINBRIDGE_AUTOSTART_FILE_NAME),
     ] {
         match std::fs::remove_file(&path) {
             Ok(()) => {}
@@ -372,7 +386,7 @@ mod tests {
             installed.autostart_entry_path,
             config_dir
                 .join("autostart")
-                .join("dev.winbridge.Winbridge.desktop")
+                .join("dev.winbridge.WinbridgeApp.desktop")
         );
         let autostart = std::fs::read_to_string(installed.autostart_entry_path).unwrap();
         assert!(autostart.contains("X-GNOME-Autostart-enabled=true"));
@@ -428,7 +442,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(uninstalled.removed_paths.len(), 4);
-        assert_eq!(uninstalled.missing_paths.len(), 3);
+        assert_eq!(uninstalled.missing_paths.len(), 5);
         assert!(!installed.desktop_entry_path.exists());
         assert!(!installed.icon_path.exists());
         assert!(!installed.command_path.exists());
@@ -446,6 +460,6 @@ mod tests {
         .unwrap();
 
         assert!(uninstalled.removed_paths.is_empty());
-        assert_eq!(uninstalled.missing_paths.len(), 7);
+        assert_eq!(uninstalled.missing_paths.len(), 9);
     }
 }
