@@ -5,9 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TARGET="$REPO_ROOT/scripts/host/02-setup-libvirt.sh"
 QGA_TARGET="$REPO_ROOT/scripts/host/07-enable-qemu-ga.sh"
+WAIT_TARGET="$REPO_ROOT/scripts/host/04-wait-for-install.sh"
 
 [ -x "$TARGET" ] || { echo "FAIL: $TARGET missing or not executable"; exit 1; }
 [ -x "$QGA_TARGET" ] || { echo "FAIL: $QGA_TARGET missing or not executable"; exit 1; }
+[ -x "$WAIT_TARGET" ] || { echo "FAIL: $WAIT_TARGET missing or not executable"; exit 1; }
 
 # --help mentions libvirt + key keywords
 help_out=$("$TARGET" --help 2>&1)
@@ -43,5 +45,9 @@ echo "$qga_out" | grep -qi "virtio" \
     || { echo "FAIL: qemu-ga dry-run missing virtio ISO"; exit 1; }
 grep -q "setfacl" "$QGA_TARGET" \
     || { echo "FAIL: qemu-ga retrofit does not grant libvirt-qemu ISO access"; exit 1; }
+grep -q "detach-disk" "$WAIT_TARGET" \
+    || { echo "FAIL: wait-for-install does not detach install media after setup"; exit 1; }
+grep -q "domblklist" "$WAIT_TARGET" \
+    || { echo "FAIL: wait-for-install does not discover attached cdrom targets"; exit 1; }
 
 echo "PASS: test-libvirt.sh"
