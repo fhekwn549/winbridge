@@ -14,6 +14,7 @@ pub trait LibvirtBackend: Send + Sync + 'static {
     async fn shutdown(&self, vm_name: &str) -> WinbridgeResult<()>;
     async fn destroy(&self, vm_name: &str) -> WinbridgeResult<()>;
     async fn domain_xml(&self, vm_name: &str) -> WinbridgeResult<String>;
+    async fn live_domain_xml(&self, vm_name: &str) -> WinbridgeResult<String>;
     async fn qemu_agent_command(
         &self,
         vm_name: &str,

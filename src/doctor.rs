@@ -176,11 +176,11 @@ pub async fn diagnose_host() -> DoctorReport {
     };
 
     match manager.attached_cdroms().await {
-        Ok(cdroms) => add_cdrom_attachment_check(&mut report, &cdroms),
+        Ok(cdroms) => add_cdrom_attachment_check(&mut report, "persistent", &cdroms),
         Err(err) => report.push(
             DoctorCheck::new(
                 DoctorStatus::Warn,
-                "vm cdrom attachments",
+                "vm persistent cdrom attachments",
                 format!("unable to inspect VM XML: {err}"),
             )
             .with_next_action("run virsh --connect qemu:///system domblklist --details"),
@@ -189,6 +189,11 @@ pub async fn diagnose_host() -> DoctorReport {
 
     let mut guest_checks_complete = false;
     if !vm_state.is_active() {
+        report.push(DoctorCheck::new(
+            DoctorStatus::Skip,
+            "vm live cdrom attachments",
+            "VM is not active; live XML unavailable",
+        ));
         report.push(
             DoctorCheck::new(
                 DoctorStatus::Skip,
@@ -198,6 +203,17 @@ pub async fn diagnose_host() -> DoctorReport {
             .with_next_action("start or resume the VM before running guest diagnostics"),
         );
     } else {
+        match manager.live_attached_cdroms().await {
+            Ok(cdroms) => add_cdrom_attachment_check(&mut report, "live", &cdroms),
+            Err(err) => report.push(
+                DoctorCheck::new(
+                    DoctorStatus::Warn,
+                    "vm live cdrom attachments",
+                    format!("unable to inspect live VM XML: {err}"),
+                )
+                .with_next_action("run virsh --connect qemu:///system domblklist --details"),
+            ),
+        }
         match manager.qemu_guest_ping().await {
             Ok(()) => {
                 report.push(DoctorCheck::new(
@@ -312,12 +328,13 @@ fn add_guest_diagnostic_checks(report: &mut DoctorReport, diagnostics: &GuestDia
     add_update_check(report, diagnostics);
 }
 
-fn add_cdrom_attachment_check(report: &mut DoctorReport, cdroms: &[AttachedCdrom]) {
+fn add_cdrom_attachment_check(report: &mut DoctorReport, scope: &str, cdroms: &[AttachedCdrom]) {
+    let check_name = format!("vm {scope} cdrom attachments");
     if cdroms.is_empty() {
         report.push(DoctorCheck::new(
             DoctorStatus::Ok,
-            "vm cdrom attachments",
-            "no persistent CD-ROM attachments",
+            check_name,
+            format!("no {scope} CD-ROM attachments"),
         ));
         return;
     }
@@ -341,10 +358,10 @@ fn add_cdrom_attachment_check(report: &mut DoctorReport, cdroms: &[AttachedCdrom
         report.push(
             DoctorCheck::new(
                 DoctorStatus::Fail,
-                "vm cdrom attachments",
-                format!("missing CD-ROM source(s) can block VM start/resume: {detail}"),
+                check_name,
+                format!("missing {scope} CD-ROM source(s) can block VM start/resume: {detail}"),
             )
-            .with_next_action("detach stale CD-ROMs with virsh detach-disk <vm> <target> --config"),
+            .with_next_action("detach stale CD-ROMs with virsh detach-disk <vm> <target>"),
         );
         return;
     }
@@ -363,8 +380,8 @@ fn add_cdrom_attachment_check(report: &mut DoctorReport, cdroms: &[AttachedCdrom
     report.push(
         DoctorCheck::new(
             DoctorStatus::Warn,
-            "vm cdrom attachments",
-            format!("persistent CD-ROM attachment(s) remain; deleting these files later can block VM start/resume: {detail}"),
+            check_name,
+            format!("{scope} CD-ROM attachment(s) remain; deleting these files later can block VM start/resume: {detail}"),
         )
         .with_next_action("detach install/driver media after setup if they are no longer needed"),
     );
@@ -666,6 +683,7 @@ mod tests {
         let mut report = DoctorReport::default();
         add_cdrom_attachment_check(
             &mut report,
+            "persistent",
             &[AttachedCdrom {
                 target: "sdb".to_string(),
                 source: Some("/missing/server.iso".to_string()),
@@ -674,9 +692,11 @@ mod tests {
         );
 
         let checks = report.checks();
-        assert_eq!(checks[0].name, "vm cdrom attachments");
+        assert_eq!(checks[0].name, "vm persistent cdrom attachments");
         assert_eq!(checks[0].status, DoctorStatus::Fail);
-        assert!(checks[0].detail.contains("missing CD-ROM source"));
+        assert!(checks[0]
+            .detail
+            .contains("missing persistent CD-ROM source"));
         assert!(checks[0]
             .next_action
             .as_ref()
@@ -689,6 +709,7 @@ mod tests {
         let mut report = DoctorReport::default();
         add_cdrom_attachment_check(
             &mut report,
+            "live",
             &[AttachedCdrom {
                 target: "sdc".to_string(),
                 source: Some("/tmp/driver.iso".to_string()),
@@ -698,6 +719,6 @@ mod tests {
 
         let checks = report.checks();
         assert_eq!(checks[0].status, DoctorStatus::Warn);
-        assert!(checks[0].detail.contains("persistent CD-ROM"));
+        assert!(checks[0].detail.contains("live CD-ROM"));
     }
 }

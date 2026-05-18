@@ -558,7 +558,7 @@ async fn run_status() -> error::WinbridgeResult<()> {
     println!("lifecycle: {}", lifecycle_summary(cfg.lifecycle));
     println!("rdp: {}", rdp_tcp_status(&cfg.vm_ip).await);
     println!("qemu-ga: {}", qemu_ga_status(&manager, state).await);
-    println!("cdrom: {}", cdrom_status(&manager).await);
+    println!("cdrom: {}", cdrom_status(&manager, state).await);
     Ok(())
 }
 
@@ -620,12 +620,23 @@ async fn qemu_ga_status(manager: &vm::VmManager, state: vm::VmState) -> String {
     }
 }
 
-async fn cdrom_status(manager: &vm::VmManager) -> String {
-    match manager.attached_cdroms().await {
-        Ok(cdroms) if cdroms.is_empty() => "no persistent attachments".to_string(),
-        Ok(cdroms) => format!("{} persistent attachment(s)", cdroms.len()),
-        Err(err) => format!("inspect failed ({err})"),
+async fn cdrom_status(manager: &vm::VmManager, state: vm::VmState) -> String {
+    let persistent = match manager.attached_cdroms().await {
+        Ok(cdroms) if cdroms.is_empty() => "persistent=none".to_string(),
+        Ok(cdroms) => format!("persistent={} attachment(s)", cdroms.len()),
+        Err(err) => format!("persistent=inspect failed ({err})"),
+    };
+
+    if !state.is_active() {
+        return format!("{persistent}, live=skipped (VM not active)");
     }
+
+    let live = match manager.live_attached_cdroms().await {
+        Ok(cdroms) if cdroms.is_empty() => "live=none".to_string(),
+        Ok(cdroms) => format!("live={} attachment(s)", cdroms.len()),
+        Err(err) => format!("live=inspect failed ({err})"),
+    };
+    format!("{persistent}, {live}")
 }
 
 async fn check_tcp_once(host: &str, port: u16, timeout: Duration) -> Result<(), String> {
@@ -644,11 +655,39 @@ async fn diagnostic_bundle_text() -> String {
         .map(|duration| duration.as_secs())
         .unwrap_or(0);
     let _ = writeln!(out, "winbridge diagnostic bundle");
+    let _ = writeln!(out, "version: {}", env!("CARGO_PKG_VERSION"));
     let _ = writeln!(out, "generated-unix-seconds: {now}");
     let _ = writeln!(out);
 
+    let _ = writeln!(out, "[host]");
+    append_command_snapshot(&mut out, "uname", "uname", &["-a"]);
+    append_command_snapshot(&mut out, "df-home", "df", &["-h", "/home"]);
+
     match config::WinbridgeConfig::load() {
         Ok(cfg) => {
+            let _ = writeln!(out);
+            let _ = writeln!(out, "[libvirt]");
+            let connect_args = ["--connect", cfg.libvirt_uri.as_str()];
+            append_command_snapshot(
+                &mut out,
+                "virsh-list",
+                "virsh",
+                &[connect_args[0], connect_args[1], "list", "--all"],
+            );
+            append_command_snapshot(
+                &mut out,
+                "virsh-domstate",
+                "virsh",
+                &[connect_args[0], connect_args[1], "domstate", &cfg.vm_name],
+            );
+            append_command_snapshot(
+                &mut out,
+                "virsh-domblklist",
+                "virsh",
+                &[connect_args[0], connect_args[1], "domblklist", &cfg.vm_name],
+            );
+
+            let _ = writeln!(out);
             let _ = writeln!(out, "[status]");
             match vm_manager_from_config(&cfg) {
                 Ok(manager) => match manager.state().await {
@@ -657,7 +696,7 @@ async fn diagnostic_bundle_text() -> String {
                         let _ = writeln!(out, "lifecycle: {}", lifecycle_summary(cfg.lifecycle));
                         let _ = writeln!(out, "rdp: {}", rdp_tcp_status(&cfg.vm_ip).await);
                         let _ = writeln!(out, "qemu-ga: {}", qemu_ga_status(&manager, state).await);
-                        let _ = writeln!(out, "cdrom: {}", cdrom_status(&manager).await);
+                        let _ = writeln!(out, "cdrom: {}", cdrom_status(&manager, state).await);
                     }
                     Err(err) => {
                         let _ = writeln!(out, "vm state error: {err}");
@@ -679,6 +718,48 @@ async fn diagnostic_bundle_text() -> String {
     let report = doctor::diagnose_host().await;
     out.push_str(&doctor::format_report(&report));
     out
+}
+
+fn append_command_snapshot(out: &mut String, label: &str, program: &str, args: &[&str]) {
+    let command = std::iter::once(program)
+        .chain(args.iter().copied())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let _ = writeln!(out, "## {label}");
+    let _ = writeln!(out, "$ {command}");
+
+    match std::process::Command::new(program).args(args).output() {
+        Ok(output) => {
+            let _ = writeln!(out, "exit: {}", output.status);
+            let stdout = truncate_for_bundle(&String::from_utf8_lossy(&output.stdout));
+            let stderr = truncate_for_bundle(&String::from_utf8_lossy(&output.stderr));
+            if !stdout.trim().is_empty() {
+                let _ = writeln!(out, "stdout:");
+                let _ = writeln!(out, "{stdout}");
+            }
+            if !stderr.trim().is_empty() {
+                let _ = writeln!(out, "stderr:");
+                let _ = writeln!(out, "{stderr}");
+            }
+        }
+        Err(err) => {
+            let _ = writeln!(out, "failed to run: {err}");
+        }
+    }
+    let _ = writeln!(out);
+}
+
+fn truncate_for_bundle(text: &str) -> String {
+    const LIMIT: usize = 12_000;
+    if text.len() <= LIMIT {
+        return text.to_string();
+    }
+
+    let mut end = LIMIT;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}\n... truncated after {end} bytes ...", &text[..end])
 }
 
 fn default_diagnostic_bundle_path() -> error::WinbridgeResult<PathBuf> {
@@ -1139,6 +1220,10 @@ mod tests {
             Ok("<domain/>".to_string())
         }
 
+        async fn live_domain_xml(&self, _vm_name: &str) -> error::WinbridgeResult<String> {
+            Ok("<domain/>".to_string())
+        }
+
         async fn qemu_agent_command(
             &self,
             _vm_name: &str,
@@ -1305,6 +1390,30 @@ mod tests {
         assert!(!gate.try_begin());
         gate.finish();
         assert!(gate.try_begin());
+    }
+
+    #[test]
+    fn diagnostic_bundle_snapshot_reports_missing_command() {
+        let mut out = String::new();
+
+        append_command_snapshot(
+            &mut out,
+            "missing",
+            "/definitely/missing-winbridge-command",
+            &[],
+        );
+
+        assert!(out.contains("## missing"));
+        assert!(out.contains("failed to run"));
+    }
+
+    #[test]
+    fn diagnostic_bundle_truncates_large_output_on_char_boundary() {
+        let input = format!("{}한글", "a".repeat(12_500));
+        let output = truncate_for_bundle(&input);
+
+        assert!(output.contains("truncated after"));
+        assert!(std::str::from_utf8(output.as_bytes()).is_ok());
     }
 
     #[test]

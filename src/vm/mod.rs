@@ -198,6 +198,11 @@ impl VmManager {
         Ok(attached_cdroms_from_domain_xml(&xml))
     }
 
+    pub async fn live_attached_cdroms(&self) -> WinbridgeResult<Vec<AttachedCdrom>> {
+        let xml = self.backend.live_domain_xml(&self.vm_name).await?;
+        Ok(attached_cdroms_from_domain_xml(&xml))
+    }
+
     pub async fn repair_kakaotalk(&self) -> WinbridgeResult<String> {
         self.qemu_guest_ping().await?;
         let command = kakaotalk_repair_guest_exec_command();
@@ -754,6 +759,26 @@ mod tests {
         assert!(!cdroms[0].source_exists);
         assert_eq!(cdroms[1].target, "sdc");
         assert_eq!(cdroms[1].source, None);
+    }
+
+    #[tokio::test]
+    async fn live_attached_cdroms_uses_live_domain_xml() {
+        let mut mock = MockLibvirtBackend::new();
+        mock.expect_live_domain_xml()
+            .with(eq("test-vm"))
+            .times(1)
+            .returning(|_| {
+                Box::pin(async {
+                    Ok(r#"<domain><devices><disk type="file" device="cdrom"><source file="/tmp/live.iso"/><target dev="sdc"/></disk></devices></domain>"#.to_string())
+                })
+            });
+
+        let mgr = VmManager::new(Arc::new(mock), "test-vm");
+        let cdroms = mgr.live_attached_cdroms().await.unwrap();
+
+        assert_eq!(cdroms.len(), 1);
+        assert_eq!(cdroms[0].target, "sdc");
+        assert_eq!(cdroms[0].source, Some("/tmp/live.iso".to_string()));
     }
 
     #[test]

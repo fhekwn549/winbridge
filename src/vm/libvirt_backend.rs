@@ -112,6 +112,13 @@ impl LibvirtBackend for LibvirtBackendImpl {
             .map_err(|e| VmError::LibvirtApi(e.to_string()).into())
     }
 
+    async fn live_domain_xml(&self, vm_name: &str) -> WinbridgeResult<String> {
+        let domain = self.lookup(vm_name)?;
+        domain
+            .get_xml_desc(0)
+            .map_err(|e| VmError::LibvirtApi(e.to_string()).into())
+    }
+
     async fn qemu_agent_command(
         &self,
         vm_name: &str,
