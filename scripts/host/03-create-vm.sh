@@ -80,6 +80,7 @@ render_template "$REPO_ROOT/config/autounattend.xml.template" > "$OEM_DIR/autoun
 
 log_info "firstboot.ps1 복사 (UTF-8 BOM 추가 — PowerShell 5.x가 BOM 없으면 ANSI cp949로 잘못 해석)..."
 { printf '\xEF\xBB\xBF'; cat "$REPO_ROOT/config/firstboot.ps1"; } > "$OEM_DIR/firstboot.ps1"
+{ printf '\xEF\xBB\xBF'; cat "$REPO_ROOT/scripts/windows/install-url-forwarder.ps1"; } > "$OEM_DIR/install-url-forwarder.ps1"
 
 # 3. OEM ISO 생성
 OEM_ISO="$WINBRIDGE_BUILD_DIR/oem.iso"

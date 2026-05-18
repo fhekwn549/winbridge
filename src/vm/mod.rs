@@ -100,6 +100,11 @@ struct GuestExecStatus {
     stderr: String,
 }
 
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+struct ForwardedUrlQueue {
+    urls: Vec<String>,
+}
+
 impl VmManager {
     pub fn new(backend: Arc<dyn backend::LibvirtBackend>, vm_name: impl Into<String>) -> Self {
         Self {
@@ -243,6 +248,28 @@ impl VmManager {
             .run_powershell_capture(repair_wallpaper_powershell_command(), 10, 40)
             .await?;
         Ok(output.stdout.trim_matches(char::from(0)).trim().to_string())
+    }
+
+    pub async fn install_url_forwarder(&self) -> WinbridgeResult<String> {
+        let command = install_url_forwarder_powershell_command();
+        let output = self.run_powershell_capture(&command, 10, 40).await?;
+        Ok(output.stdout.trim_matches(char::from(0)).trim().to_string())
+    }
+
+    pub async fn drain_forwarded_urls(&self) -> WinbridgeResult<Vec<String>> {
+        let output = self
+            .run_powershell_capture(drain_forwarded_urls_powershell_command(), 10, 10)
+            .await?;
+        let stdout = output.stdout.trim_matches(char::from(0)).trim();
+        if stdout.is_empty() {
+            return Ok(Vec::new());
+        }
+        let queue: ForwardedUrlQueue = serde_json::from_str(stdout).map_err(|err| {
+            VmError::GuestAgent(format!(
+                "failed to parse forwarded URL queue JSON: {err}; stdout={stdout}"
+            ))
+        })?;
+        Ok(queue.urls)
     }
 
     async fn run_powershell_capture(
@@ -446,6 +473,52 @@ if (-not [Winbridge.Wallpaper]::SystemParametersInfo(20, 0, $stable, 3)) { \
     throw 'SystemParametersInfo failed.'; \
 }; \
 Write-Host \"Wallpaper repaired: $stable\""
+}
+
+fn install_url_forwarder_powershell_command() -> String {
+    let script = include_str!("../../scripts/windows/install-url-forwarder.ps1");
+    let encoded = base64::engine::general_purpose::STANDARD.encode(script.as_bytes());
+    format!(
+        "$ErrorActionPreference = 'Stop'; \
+New-Item -Path 'C:\\winbridge' -ItemType Directory -Force | Out-Null; \
+$script = 'C:\\winbridge\\install-url-forwarder.ps1'; \
+$bytes = [Convert]::FromBase64String('{encoded}'); \
+[IO.File]::WriteAllBytes($script, $bytes); \
+$taskName = 'InstallUrlForwarder'; \
+$taskPath = '\\Winbridge\\'; \
+$argument = '-ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File \"' + $script + '\"'; \
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argument; \
+$principal = New-ScheduledTaskPrincipal -UserId 'Administrator' -LogonType Interactive -RunLevel Highest; \
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 1); \
+Register-ScheduledTask -TaskPath $taskPath -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null; \
+Start-ScheduledTask -TaskPath $taskPath -TaskName $taskName; \
+Start-Sleep -Seconds 2; \
+$info = Get-ScheduledTaskInfo -TaskPath $taskPath -TaskName $taskName; \
+$task = Get-ScheduledTask -TaskPath $taskPath -TaskName $taskName; \
+$result = [int]$info.LastTaskResult; \
+if ($result -ne 0 -and $result -ne 267009) {{ throw \"URL forwarder task result=$result state=$($task.State)\" }}; \
+Write-Host \"Winbridge URL forwarder install task triggered: state=$($task.State), result=$result\""
+    )
+}
+
+fn drain_forwarded_urls_powershell_command() -> &'static str {
+    "$ErrorActionPreference = 'Stop'; \
+$queue = 'C:\\winbridge\\url-queue'; \
+$urls = @(); \
+if (Test-Path $queue) { \
+    Get-ChildItem -Path $queue -Filter '*.url' -File -ErrorAction SilentlyContinue | \
+        Sort-Object LastWriteTime | Select-Object -First 20 | ForEach-Object { \
+            $path = $_.FullName; \
+            try { \
+                $content = (Get-Content -LiteralPath $path -Raw -ErrorAction Stop).Trim(); \
+                Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue; \
+                if ($content) { $urls += $content }; \
+            } catch { \
+                Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue; \
+            } \
+        }; \
+}; \
+[pscustomobject]@{ urls = @($urls) } | ConvertTo-Json -Compress -Depth 3"
 }
 
 fn guest_exec_pid(response: &str) -> WinbridgeResult<i64> {
@@ -791,6 +864,27 @@ mod tests {
         assert!(command.contains("KakaoTalk"));
         assert!(command.contains("RebootRequired"));
         assert!(command.contains("PendingFileRenameOperations"));
+    }
+
+    #[test]
+    fn url_forwarder_install_command_installs_script_and_protocol_handlers() {
+        let command = install_url_forwarder_powershell_command();
+
+        assert!(command.contains("install-url-forwarder.ps1"));
+        assert!(command.contains("FromBase64String"));
+        assert!(include_str!("../../scripts/windows/install-url-forwarder.ps1")
+            .contains("Winbridge.UrlForwarder"));
+        assert!(include_str!("../../scripts/windows/install-url-forwarder.ps1")
+            .contains("open-url-on-host.ps1"));
+    }
+
+    #[test]
+    fn drain_forwarded_urls_command_reads_and_removes_queue_files() {
+        let command = drain_forwarded_urls_powershell_command();
+
+        assert!(command.contains("C:\\winbridge\\url-queue"));
+        assert!(command.contains("ConvertTo-Json"));
+        assert!(command.contains("Remove-Item"));
     }
 
     #[test]

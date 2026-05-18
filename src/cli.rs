@@ -59,6 +59,9 @@ pub enum Command {
 
     /// Restore Windows wallpaper from a reachable source or theme cache.
     RepairWallpaper,
+
+    /// Install Windows http/https forwarding so guest links open on the Linux host.
+    InstallUrlForwarder,
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]

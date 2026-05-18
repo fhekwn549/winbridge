@@ -6,10 +6,12 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TARGET="$REPO_ROOT/scripts/host/02-setup-libvirt.sh"
 QGA_TARGET="$REPO_ROOT/scripts/host/07-enable-qemu-ga.sh"
 WAIT_TARGET="$REPO_ROOT/scripts/host/04-wait-for-install.sh"
+CREATE_TARGET="$REPO_ROOT/scripts/host/03-create-vm.sh"
 
 [ -x "$TARGET" ] || { echo "FAIL: $TARGET missing or not executable"; exit 1; }
 [ -x "$QGA_TARGET" ] || { echo "FAIL: $QGA_TARGET missing or not executable"; exit 1; }
 [ -x "$WAIT_TARGET" ] || { echo "FAIL: $WAIT_TARGET missing or not executable"; exit 1; }
+[ -x "$CREATE_TARGET" ] || { echo "FAIL: $CREATE_TARGET missing or not executable"; exit 1; }
 
 # --help mentions libvirt + key keywords
 help_out=$("$TARGET" --help 2>&1)
@@ -49,5 +51,7 @@ grep -q "detach-disk" "$WAIT_TARGET" \
     || { echo "FAIL: wait-for-install does not detach install media after setup"; exit 1; }
 grep -q "domblklist" "$WAIT_TARGET" \
     || { echo "FAIL: wait-for-install does not discover attached cdrom targets"; exit 1; }
+grep -q "install-url-forwarder.ps1" "$CREATE_TARGET" \
+    || { echo "FAIL: create-vm does not include URL forwarder in OEM ISO"; exit 1; }
 
 echo "PASS: test-libvirt.sh"

@@ -10,6 +10,7 @@ const RDP_PORT: u16 = 3389;
 const RDP_READY_TIMEOUT: Duration = Duration::from_secs(180);
 const RDP_READY_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const RDP_HANDSHAKE_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(15);
+const URL_FORWARDER_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const WINBRIDGE_APPLICATION_ID: &str = "dev.winbridge.Winbridge";
 
 #[derive(Debug, PartialEq, Eq)]
@@ -527,6 +528,12 @@ fn main() {
                     std::process::exit(1);
                 }
             }
+            Some(cli::Command::InstallUrlForwarder) => {
+                if let Err(err) = run_install_url_forwarder().await {
+                    eprintln!("install-url-forwarder 실패: {err}");
+                    std::process::exit(1);
+                }
+            }
             Some(cli::Command::Start { mode, display }) => {
                 if let Err(err) = run_start(mode, display).await {
                     eprintln!("start 실패: {err}");
@@ -598,6 +605,21 @@ async fn run_repair_wallpaper() -> error::WinbridgeResult<()> {
     let detail = manager.repair_wallpaper().await?;
     if detail.is_empty() {
         println!("Wallpaper repair requested through QEMU guest agent");
+    } else {
+        println!("{detail}");
+    }
+    Ok(())
+}
+
+async fn run_install_url_forwarder() -> error::WinbridgeResult<()> {
+    let cfg = config::WinbridgeConfig::load()?;
+    let backend = vm::libvirt_backend::LibvirtBackendImpl::open(&cfg.libvirt_uri)?;
+    let manager = vm::VmManager::new(Arc::new(backend), cfg.vm_name.clone());
+
+    manager.ensure_active().await?;
+    let detail = manager.install_url_forwarder().await?;
+    if detail.is_empty() {
+        println!("Winbridge URL forwarder installed");
     } else {
         println!("{detail}");
     }
@@ -798,6 +820,7 @@ async fn run_tray() -> error::WinbridgeResult<()> {
         &cfg.libvirt_uri,
     )?);
     let manager = Arc::new(vm::VmManager::new(backend, cfg.vm_name.clone()));
+    spawn_url_forwarder(manager.clone());
 
     let app = gtk4::Application::builder()
         .application_id(WINBRIDGE_APPLICATION_ID)
@@ -892,6 +915,7 @@ async fn run_start(
         &cfg.libvirt_uri,
     )?);
     let manager = Arc::new(vm::VmManager::new(backend, cfg.vm_name.clone()));
+    spawn_url_forwarder(manager.clone());
     manager.ensure_active().await?;
     wait_for_rdp_ready(&cfg.vm_ip, &cfg.admin_password).await?;
 
@@ -1025,6 +1049,51 @@ fn gtk_application_id(mode: cli::WindowMode) -> &'static str {
         cli::WindowMode::App => desktop::KAKAOTALK_APPLICATION_ID,
         cli::WindowMode::Desktop => WINBRIDGE_APPLICATION_ID,
     }
+}
+
+fn spawn_url_forwarder(manager: Arc<vm::VmManager>) {
+    tokio::spawn(async move {
+        loop {
+            if let Ok(state) = manager.state().await {
+                if state.is_active() {
+                    match manager.drain_forwarded_urls().await {
+                        Ok(urls) => {
+                            for url in urls {
+                                if is_allowed_forwarded_url(&url) {
+                                    if let Err(err) = open_url_on_host(&url) {
+                                        tracing::warn!(
+                                            "failed to open forwarded URL on host: {err}"
+                                        );
+                                    }
+                                } else {
+                                    tracing::warn!("blocked forwarded URL: {url}");
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            tracing::debug!("URL forwarder poll failed: {err}");
+                        }
+                    }
+                }
+            }
+            tokio::time::sleep(URL_FORWARDER_POLL_INTERVAL).await;
+        }
+    });
+}
+
+fn is_allowed_forwarded_url(url: &str) -> bool {
+    let trimmed = url.trim();
+    if trimmed.len() > 4096 || trimmed.bytes().any(|byte| byte < 0x20 || byte == 0x7f) {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    lower.starts_with("http://") || lower.starts_with("https://")
+}
+
+fn open_url_on_host(url: &str) -> std::io::Result<()> {
+    std::process::Command::new("xdg-open").arg(url).spawn()?;
+    Ok(())
 }
 
 fn rdp_window_options(
@@ -1409,6 +1478,17 @@ mod tests {
         assert!(!gate.try_begin());
         gate.finish();
         assert!(gate.try_begin());
+    }
+
+    #[test]
+    fn forwarded_url_validation_allows_only_http_https() {
+        assert!(is_allowed_forwarded_url(
+            "https://www.instagram.com/reel/example"
+        ));
+        assert!(is_allowed_forwarded_url("http://example.com"));
+        assert!(!is_allowed_forwarded_url("file:///etc/passwd"));
+        assert!(!is_allowed_forwarded_url("powershell:Start-Process calc"));
+        assert!(!is_allowed_forwarded_url("https://example.com/\nnext"));
     }
 
     #[test]

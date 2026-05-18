@@ -21,6 +21,7 @@ fn winbridge_help_exits_zero_with_subcommands_listed() {
     assert!(stdout.contains("diagnostic-bundle"));
     assert!(stdout.contains("repair-kakao"));
     assert!(stdout.contains("repair-wallpaper"));
+    assert!(stdout.contains("install-url-forwarder"));
 }
 
 #[test]

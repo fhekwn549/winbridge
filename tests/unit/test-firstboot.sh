@@ -6,14 +6,17 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 FIRSTBOOT="$REPO_ROOT/config/firstboot.ps1"
 POSITION_SCRIPT="$REPO_ROOT/scripts/windows/position-kakaotalk.ps1"
 WALLPAPER_SCRIPT="$REPO_ROOT/scripts/windows/repair-wallpaper.ps1"
+URL_FORWARDER_SCRIPT="$REPO_ROOT/scripts/windows/install-url-forwarder.ps1"
 
 [ -f "$FIRSTBOOT" ] || { echo "FAIL: firstboot.ps1 missing"; exit 1; }
 [ -f "$POSITION_SCRIPT" ] || { echo "FAIL: position-kakaotalk.ps1 missing"; exit 1; }
 [ -f "$WALLPAPER_SCRIPT" ] || { echo "FAIL: repair-wallpaper.ps1 missing"; exit 1; }
+[ -f "$URL_FORWARDER_SCRIPT" ] || { echo "FAIL: install-url-forwarder.ps1 missing"; exit 1; }
 
 content=$(<"$FIRSTBOOT")
 position_content=$(<"$POSITION_SCRIPT")
 wallpaper_content=$(<"$WALLPAPER_SCRIPT")
+url_forwarder_content=$(<"$URL_FORWARDER_SCRIPT")
 
 case "$content" in
     *"C:\\winbridge\\position-kakaotalk.ps1"*|*"C:\winbridge\position-kakaotalk.ps1"*) ;;
@@ -113,6 +116,19 @@ echo "$content" | grep -q "WinbridgeShare" \
     || { echo "FAIL: firstboot does not create a WinbridgeShare shortcut"; exit 1; }
 echo "$content" | grep -q "\\\\\\\\192.168.122.1\\\\winbridge" \
     || { echo "FAIL: firstboot shortcut does not point at the default SMB share"; exit 1; }
+
+echo "$content" | grep -q "install-url-forwarder.ps1" \
+    || { echo "FAIL: firstboot does not install URL forwarder"; exit 1; }
+echo "$url_forwarder_content" | grep -q "Winbridge.UrlForwarder" \
+    || { echo "FAIL: URL forwarder does not register a ProgID"; exit 1; }
+echo "$url_forwarder_content" | grep -q "Set-RegistryDefaultValue" \
+    || { echo "FAIL: URL forwarder does not set registry default values safely"; exit 1; }
+echo "$url_forwarder_content" | grep -q "RegisteredApplications" \
+    || { echo "FAIL: URL forwarder does not register as a Windows default-app candidate"; exit 1; }
+echo "$url_forwarder_content" | grep -q "url-queue" \
+    || { echo "FAIL: URL forwarder does not write to the host-polled queue"; exit 1; }
+echo "$url_forwarder_content" | grep -q "https" \
+    || { echo "FAIL: URL forwarder does not handle https"; exit 1; }
 
 case "$content" in
     *"KakaoTalk HKCU Run 등록"*) echo "FAIL: firstboot still documents raw KakaoTalk autostart"; exit 1 ;;

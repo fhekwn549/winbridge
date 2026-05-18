@@ -435,7 +435,22 @@ try {
     Log "[WARN] WinbridgeShare 바로가기 생성 실패: $($_.Exception.Message)"
 }
 
-# Step 10: status SUCCESS + 재부팅 예약
+# Step 10: URL forwarder install
+try {
+    $urlForwarderSource = Join-Path $PSScriptRoot 'install-url-forwarder.ps1'
+    if (Test-Path $urlForwarderSource) {
+        $urlForwarderTarget = 'C:\winbridge\install-url-forwarder.ps1'
+        Copy-Item -Path $urlForwarderSource -Destination $urlForwarderTarget -Force
+        & $urlForwarderTarget | Out-File -FilePath 'C:\winbridge\install-url-forwarder-firstboot.log' -Append -Encoding utf8
+        Log "[OK] URL forwarder 설치"
+    } else {
+        Log "[WARN] install-url-forwarder.ps1 not found on OEM media"
+    }
+} catch {
+    Log "[WARN] URL forwarder 설치 실패: $($_.Exception.Message)"
+}
+
+# Step 11: status SUCCESS + 재부팅 예약
 # (SPICE guest tools 설치는 VirtIO PnP 미서명 컨펌으로 자동화 끊김 → P2B로 이관)
 'SUCCESS' | Out-File -FilePath $StatusPath -Encoding ascii -NoNewline
 Log "=== firstboot.ps1 SUCCESS, 30초 후 재부팅 ==="
