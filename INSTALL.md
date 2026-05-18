@@ -1,18 +1,24 @@
 # winbridge Installation Guide
 
-This guide walks through a first-time winbridge installation on Ubuntu 22.04 and the daily commands for opening KakaoTalk. The commands are written so they can usually be copied directly into a terminal.
+This guide walks through a first-time winbridge installation and the daily commands for opening KakaoTalk. The verified host target is Ubuntu 22.04.5 LTS. Ubuntu 24.04 LTS is pending direct validation in <https://github.com/fhekwn549/winbridge/issues/2>.
+
+The Windows VM setup still uses this repository's host scripts. The Linux app itself can be installed from the release `.deb` package, from the early APT repository, or from source.
 
 Korean guide: [INSTALL.ko.md](INSTALL.ko.md)
 
 ## 1. Base Environment
 
-Recommended environment:
+Verified environment:
 
-- Ubuntu 22.04
+- Ubuntu 22.04.5 LTS
 - 8 GB RAM or more
 - 50 GB free disk space or more
 - Hardware virtualization enabled in BIOS/UEFI
 - Internet access
+
+Expected but not yet verified:
+
+- Ubuntu 24.04 LTS
 
 Check that KVM is available.
 
@@ -22,7 +28,7 @@ ls -l /dev/kvm
 
 If `/dev/kvm` does not exist, enable AMD-V or Intel VT-x in BIOS/UEFI first.
 
-## 2. Install Packages
+## 2. Install Host Packages
 
 ```bash
 sudo apt update
@@ -50,6 +56,8 @@ sudo apt install -y \
   libvirt-dev \
   gnome-shell-extension-appindicator
 ```
+
+This package list covers VM creation, source builds, and local package builds. If you only install the release `.deb`, it pulls the runtime dependencies, but the VM creation scripts still need the host tools above.
 
 Add the current user to the `libvirt` group.
 
@@ -156,7 +164,38 @@ The installer automatically performs these steps:
 
 When installation finishes, an RDP window opens. On first use, pair or authenticate Windows KakaoTalk with QR login or phone-number login.
 
-## 7. Build winbridge
+## 7. Install the Linux App
+
+### Option A: Install the release package
+
+Download the latest `.deb` from:
+
+<https://github.com/fhekwn549/winbridge/releases/tag/v0.1.0>
+
+Install it:
+
+```bash
+sudo apt install ./winbridge_0.1.0_amd64.deb
+```
+
+This installs:
+
+- `/usr/bin/winbridge`
+- `/usr/share/applications/dev.winbridge.WinbridgeApp.desktop`
+- `/usr/share/applications/winbridge.desktop`
+- `/usr/share/icons/hicolor/256x256/apps/winbridge.png`
+
+### Option B: Install from the early APT repository
+
+The repository is currently unsigned and intended for early validation.
+
+```bash
+echo 'deb [arch=amd64 trusted=yes] https://fhekwn549.github.io/winbridge stable main' | sudo tee /etc/apt/sources.list.d/winbridge.list
+sudo apt update
+sudo apt install winbridge
+```
+
+### Option C: Install from source
 
 ```bash
 scripts/host/08-install-linux-app.sh
@@ -165,6 +204,18 @@ scripts/host/08-install-linux-app.sh
 This builds `target/release/winbridge`, installs it to `~/.local/bin/winbridge`, installs the winbridge app launcher, and registers the same launcher for login autostart.
 
 If the winbridge icon does not appear in the GNOME app list or Dock, log out and log back in once. The launcher runs `~/.local/bin/winbridge start --mode app`, so clicking it can start or resume the VM even when the VM is not already running.
+
+Build a local Debian package:
+
+```bash
+scripts/release/build-deb.sh
+```
+
+Build the static APT repository files:
+
+```bash
+scripts/release/build-apt-repo.sh
+```
 
 ## 8. Open Guest Links on the Host Browser
 
@@ -251,8 +302,7 @@ idle-timeout-minutes = 30
 Restart the tray process:
 
 ```bash
-pkill -f 'target/release/winbridge'
-pkill -f '.local/bin/winbridge'
+pkill -f 'winbridge'
 winbridge
 ```
 
@@ -263,6 +313,21 @@ New VM installations apply Windows taskbar auto-hide automatically.
 If the taskbar keeps showing in an existing VM, run the contents of `scripts/windows/position-kakaotalk.ps1` once in Windows PowerShell.
 
 ## 12. Uninstall
+
+If installed from `.deb` or APT:
+
+```bash
+sudo apt remove winbridge
+```
+
+If installed from the early APT repository and you want to remove the source entry:
+
+```bash
+sudo rm -f /etc/apt/sources.list.d/winbridge.list
+sudo apt update
+```
+
+If installed from source or if you want to remove the VM and generated host resources, use the repository uninstaller.
 
 Uninstall with confirmation prompts:
 

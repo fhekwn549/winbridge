@@ -1,18 +1,24 @@
 # winbridge 설치 가이드
 
-이 문서는 Ubuntu 22.04 기준으로 winbridge를 처음 설치하고 KakaoTalk을 실행하는 절차입니다. 가능한 그대로 복사해서 터미널에 붙여넣을 수 있게 작성했습니다.
+이 문서는 winbridge를 처음 설치하고 KakaoTalk을 실행하는 절차입니다. 검증된 호스트 대상은 Ubuntu 22.04.5 LTS입니다. Ubuntu 24.04 LTS는 <https://github.com/fhekwn549/winbridge/issues/2>에서 직접 검증 대기 중입니다.
+
+Windows VM 구성은 아직 이 저장소의 호스트 스크립트를 사용합니다. Linux 앱 자체는 릴리즈 `.deb` 패키지, 초기 APT 저장소, 또는 소스 설치로 넣을 수 있습니다.
 
 영문 설치 가이드는 [INSTALL.md](INSTALL.md)를 보세요.
 
 ## 1. 기본 환경
 
-권장 환경:
+검증된 환경:
 
-- Ubuntu 22.04
+- Ubuntu 22.04.5 LTS
 - 메모리 8 GB 이상
 - 여유 디스크 50 GB 이상
 - BIOS/UEFI에서 가상화 기능 활성화
 - 인터넷 연결
+
+동작 예상이지만 아직 미검증:
+
+- Ubuntu 24.04 LTS
 
 KVM이 보이는지 확인합니다.
 
@@ -22,7 +28,7 @@ ls -l /dev/kvm
 
 `/dev/kvm`이 없으면 BIOS/UEFI의 AMD-V 또는 Intel VT-x 설정을 먼저 켜야 합니다.
 
-## 2. 패키지 설치
+## 2. 호스트 패키지 설치
 
 ```bash
 sudo apt update
@@ -50,6 +56,8 @@ sudo apt install -y \
   libvirt-dev \
   gnome-shell-extension-appindicator
 ```
+
+이 목록은 VM 생성, 소스 빌드, 로컬 패키지 빌드까지 포함합니다. 릴리즈 `.deb`만 설치하면 런타임 의존성은 패키지가 당겨오지만, VM 생성 스크립트에는 위 호스트 도구들이 필요합니다.
 
 현재 사용자를 `libvirt` 그룹에 추가합니다.
 
@@ -156,7 +164,38 @@ export WINBRIDGE_ISO_SHA256="$(sha256sum "$WINBRIDGE_ISO_DEST" | awk '{print $1}
 
 설치가 끝나면 RDP 창이 열립니다. 처음 실행이면 Windows KakaoTalk에서 QR 페어링 또는 전화번호 인증을 진행하세요.
 
-## 7. winbridge 빌드
+## 7. Linux 앱 설치
+
+### 선택 A: 릴리즈 패키지 설치
+
+최신 `.deb`는 아래에서 받습니다.
+
+<https://github.com/fhekwn549/winbridge/releases/tag/v0.1.0>
+
+설치:
+
+```bash
+sudo apt install ./winbridge_0.1.0_amd64.deb
+```
+
+설치되는 파일:
+
+- `/usr/bin/winbridge`
+- `/usr/share/applications/dev.winbridge.WinbridgeApp.desktop`
+- `/usr/share/applications/winbridge.desktop`
+- `/usr/share/icons/hicolor/256x256/apps/winbridge.png`
+
+### 선택 B: 초기 APT 저장소에서 설치
+
+현재 저장소는 unsigned이며 초기 검증용입니다.
+
+```bash
+echo 'deb [arch=amd64 trusted=yes] https://fhekwn549.github.io/winbridge stable main' | sudo tee /etc/apt/sources.list.d/winbridge.list
+sudo apt update
+sudo apt install winbridge
+```
+
+### 선택 C: 소스에서 설치
 
 ```bash
 scripts/host/08-install-linux-app.sh
@@ -165,6 +204,18 @@ scripts/host/08-install-linux-app.sh
 이 명령은 `target/release/winbridge`를 빌드하고 `~/.local/bin/winbridge`에 설치한 뒤 winbridge 앱 런처와 로그인 자동시작 항목을 등록합니다.
 
 GNOME 앱 목록이나 Dock에서 winbridge 아이콘이 보이지 않으면 한 번 로그아웃 후 다시 로그인하세요. 런처는 `~/.local/bin/winbridge start --mode app`을 실행하므로 VM이 꺼져 있어도 아이콘 클릭으로 VM 시작 또는 재개 후 KakaoTalk을 열 수 있습니다.
+
+로컬 Debian 패키지 생성:
+
+```bash
+scripts/release/build-deb.sh
+```
+
+정적 APT 저장소 파일 생성:
+
+```bash
+scripts/release/build-apt-repo.sh
+```
 
 ## 8. 게스트 링크를 호스트 브라우저에서 열기
 
@@ -251,8 +302,7 @@ idle-timeout-minutes = 30
 트레이 프로세스를 다시 시작하려면:
 
 ```bash
-pkill -f 'target/release/winbridge'
-pkill -f '.local/bin/winbridge'
+pkill -f 'winbridge'
 winbridge
 ```
 
@@ -263,6 +313,21 @@ winbridge
 이미 설치된 VM에서 작업표시줄이 계속 보이면 Windows PowerShell에서 `scripts/windows/position-kakaotalk.ps1` 내용을 한 번 실행하세요.
 
 ## 12. 제거
+
+`.deb` 또는 APT로 설치했다면:
+
+```bash
+sudo apt remove winbridge
+```
+
+초기 APT 저장소로 설치했고 source entry도 지우려면:
+
+```bash
+sudo rm -f /etc/apt/sources.list.d/winbridge.list
+sudo apt update
+```
+
+소스 설치를 제거하거나 VM과 생성된 호스트 리소스까지 제거하려면 저장소 uninstaller를 사용합니다.
 
 확인 질문을 보면서 제거:
 
