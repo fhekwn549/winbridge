@@ -77,7 +77,7 @@ cargo run -- repair-kakao
 cargo run -- repair-wallpaper
 ```
 
-`doctor`가 `guest service-session ...`으로 표시하는 항목은 qemu-ga 서비스 세션에서 본 진단입니다. 보이는 RDP 사용자 세션이 고장났다는 뜻이 아닙니다. 트레이 `Open KakaoTalk`으로 창이 정상 표시되면 복구할 필요가 없습니다.
+`doctor`가 `guest service-session ...`으로 표시하는 항목은 qemu-ga 서비스 세션에서 본 진단입니다. 보이는 RDP 사용자 세션이 고장났다는 뜻이 아닙니다. 트레이 `Open Winbridge`로 창이 정상 표시되면 복구할 필요가 없습니다.
 
 lifecycle 기본값은 KakaoTalk 창 닫기 시 VM 유지, 트레이 종료 시 managed-save, idle timeout 비활성입니다. `~/.config/winbridge/config.toml`에서 바꿀 수 있습니다.
 
@@ -109,7 +109,7 @@ Linux 호스트 (Ubuntu 22.04)
     -> Windows Server 2022 Evaluation VM
 
   winbridge Rust 매니저
-    -> 트레이 + KakaoTalk 데스크톱 런처
+    -> 트레이 + winbridge 데스크톱 런처
     -> 내장 RDP 뷰어
     -> 키보드 입력
     -> 양방향 텍스트 클립보드
@@ -137,7 +137,7 @@ Windows 게스트
 
 ## 로드맵
 
-- **P2A:** Windows Server 2022 무인 설치, KakaoTalk 앱 창, 트레이/런처, 키보드 입력, 양방향 텍스트 클립보드.
+- **P2A:** Windows Server 2022 무인 설치, winbridge 앱 창, 트레이/런처, 키보드 입력, 양방향 텍스트 클립보드.
 - **P2B:** VM 유휴 관리, 만료 관리, 알림 브리지, 영속성 개선, 추가 앱 후보 검토.
 - **장기:** POC 스크립트를 더 완성도 높은 Rust 기반 데스크톱 통합으로 대체.
 

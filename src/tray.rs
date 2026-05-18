@@ -4,16 +4,16 @@ use ksni::{Category, Icon, Tray};
 use std::sync::Arc;
 
 pub struct WinbridgeTray {
-    pub on_open_kakao: Arc<dyn Fn() + Send + Sync>,
+    pub on_open_winbridge: Arc<dyn Fn() + Send + Sync>,
     pub on_open_desktop: Arc<dyn Fn() + Send + Sync>,
-    pub on_repair_kakao: Arc<dyn Fn() + Send + Sync>,
+    pub on_repair_winbridge: Arc<dyn Fn() + Send + Sync>,
     pub on_repair_wallpaper: Arc<dyn Fn() + Send + Sync>,
     pub on_pause: Arc<dyn Fn() + Send + Sync>,
     pub on_shutdown: Arc<dyn Fn() + Send + Sync>,
     pub on_quit: Arc<dyn Fn() + Send + Sync>,
 }
 
-pub struct KakaoTalkTray {
+pub struct WinbridgeAppTray {
     pub on_open: Arc<dyn Fn() + Send + Sync>,
     pub on_repair: Arc<dyn Fn() + Send + Sync>,
     pub on_quit: Arc<dyn Fn() + Send + Sync>,
@@ -31,8 +31,8 @@ impl Tray for WinbridgeTray {
     fn menu(&self) -> Vec<MenuItem<Self>> {
         vec![
             StandardItem {
-                label: "Open KakaoTalk".to_string(),
-                activate: Box::new(|tray: &mut Self| (tray.on_open_kakao)()),
+                label: "Open Winbridge".to_string(),
+                activate: Box::new(|tray: &mut Self| (tray.on_open_winbridge)()),
                 ..Default::default()
             }
             .into(),
@@ -43,8 +43,8 @@ impl Tray for WinbridgeTray {
             }
             .into(),
             StandardItem {
-                label: "Repair KakaoTalk".to_string(),
-                activate: Box::new(|tray: &mut Self| (tray.on_repair_kakao)()),
+                label: "Repair Winbridge".to_string(),
+                activate: Box::new(|tray: &mut Self| (tray.on_repair_winbridge)()),
                 ..Default::default()
             }
             .into(),
@@ -77,7 +77,7 @@ impl Tray for WinbridgeTray {
     }
 }
 
-impl Tray for KakaoTalkTray {
+impl Tray for WinbridgeAppTray {
     fn category(&self) -> Category {
         Category::Communications
     }
@@ -91,7 +91,7 @@ impl Tray for KakaoTalkTray {
     }
 
     fn icon_pixmap(&self) -> Vec<Icon> {
-        kakaotalk_icon_pixmap().into_iter().collect()
+        winbridge_icon_pixmap().into_iter().collect()
     }
 
     fn title(&self) -> String {
@@ -105,13 +105,13 @@ impl Tray for KakaoTalkTray {
     fn menu(&self) -> Vec<MenuItem<Self>> {
         vec![
             StandardItem {
-                label: "Open KakaoTalk".to_string(),
+                label: "Open Winbridge".to_string(),
                 activate: Box::new(|tray: &mut Self| (tray.on_open)()),
                 ..Default::default()
             }
             .into(),
             StandardItem {
-                label: "Repair KakaoTalk".to_string(),
+                label: "Repair Winbridge".to_string(),
                 activate: Box::new(|tray: &mut Self| (tray.on_repair)()),
                 ..Default::default()
             }
@@ -134,15 +134,15 @@ pub fn spawn_tray(tray: WinbridgeTray) -> ksni::Handle<WinbridgeTray> {
     handle
 }
 
-pub fn spawn_kakaotalk_tray(tray: KakaoTalkTray) -> ksni::Handle<KakaoTalkTray> {
+pub fn spawn_winbridge_app_tray(tray: WinbridgeAppTray) -> ksni::Handle<WinbridgeAppTray> {
     let service = ksni::TrayService::new(tray);
     let handle = service.handle();
     service.spawn();
     handle
 }
 
-fn kakaotalk_icon_pixmap() -> Option<Icon> {
-    let image = image::load_from_memory(desktop::KAKAOTALK_ICON_PNG)
+fn winbridge_icon_pixmap() -> Option<Icon> {
+    let image = image::load_from_memory(desktop::WINBRIDGE_ICON_PNG)
         .ok()?
         .resize_exact(64, 64, image::imageops::FilterType::Lanczos3)
         .to_rgba8();
@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn app_tray_uses_winbridge_icon_and_title() {
-        let tray = KakaoTalkTray {
+        let tray = WinbridgeAppTray {
             on_open: Arc::new(|| {}),
             on_repair: Arc::new(|| {}),
             on_quit: Arc::new(|| {}),
@@ -179,8 +179,8 @@ mod tests {
     }
 
     #[test]
-    fn kakaotalk_tray_menu_can_quit_winbridge() {
-        let tray = KakaoTalkTray {
+    fn winbridge_app_tray_menu_can_quit_winbridge() {
+        let tray = WinbridgeAppTray {
             on_open: Arc::new(|| {}),
             on_repair: Arc::new(|| {}),
             on_quit: Arc::new(|| {}),
@@ -197,19 +197,19 @@ mod tests {
         assert_eq!(
             labels,
             vec![
-                "Open KakaoTalk",
-                "Repair KakaoTalk",
+                "Open Winbridge",
+                "Repair Winbridge",
                 "Pause VM and Quit winbridge"
             ]
         );
     }
 
     #[test]
-    fn winbridge_tray_menu_can_repair_kakaotalk() {
+    fn winbridge_tray_menu_can_repair_winbridge() {
         let tray = WinbridgeTray {
-            on_open_kakao: Arc::new(|| {}),
+            on_open_winbridge: Arc::new(|| {}),
             on_open_desktop: Arc::new(|| {}),
-            on_repair_kakao: Arc::new(|| {}),
+            on_repair_winbridge: Arc::new(|| {}),
             on_repair_wallpaper: Arc::new(|| {}),
             on_pause: Arc::new(|| {}),
             on_shutdown: Arc::new(|| {}),
@@ -224,7 +224,7 @@ mod tests {
             })
             .collect();
 
-        assert!(labels.contains(&"Repair KakaoTalk".to_string()));
+        assert!(labels.contains(&"Repair Winbridge".to_string()));
         assert!(labels.contains(&"Repair Wallpaper".to_string()));
     }
 }

@@ -186,7 +186,7 @@ Start the tray manager.
 winbridge
 ```
 
-Click `Open KakaoTalk` from the top tray icon, or launch KakaoTalk from the app list.
+Click `Open Winbridge` from the top tray icon, or launch winbridge from the app list.
 
 You can also open only the KakaoTalk window from the terminal.
 
@@ -222,7 +222,7 @@ Run diagnostics:
 winbridge doctor
 ```
 
-Repair KakaoTalk window placement or wallpaper state:
+Repair Winbridge window placement or wallpaper state:
 
 ```bash
 winbridge repair-kakao

@@ -109,7 +109,7 @@ Linux host (Ubuntu 22.04)
     -> Windows Server 2022 Evaluation VM
 
   winbridge Rust manager
-    -> tray + KakaoTalk desktop launcher
+    -> tray + winbridge desktop launcher
     -> embedded RDP viewer
     -> keyboard input
     -> bidirectional text clipboard
@@ -137,7 +137,7 @@ Design constraints:
 
 ## Roadmap
 
-- **P2A:** Windows Server 2022 unattended install, KakaoTalk app window, tray/launcher, keyboard input, and bidirectional text clipboard.
+- **P2A:** Windows Server 2022 unattended install, winbridge app window, tray/launcher, keyboard input, and bidirectional text clipboard.
 - **P2B:** VM idle management, expiration management, notification bridge, persistence improvements, and candidate support for additional apps.
 - **Long term:** Replace the proof-of-concept scripts with a more complete Rust-managed desktop integration.
 

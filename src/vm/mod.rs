@@ -232,7 +232,7 @@ impl VmManager {
                     return Ok(status.stdout.trim_matches(char::from(0)).trim().to_string());
                 }
                 return Err(VmError::GuestAgent(format!(
-                    "KakaoTalk repair exited with code {}; stderr={}; stdout={}",
+                    "Winbridge repair exited with code {}; stderr={}; stdout={}",
                     status.exitcode, status.stderr, status.stdout
                 ))
                 .into());
@@ -240,7 +240,7 @@ impl VmManager {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
 
-        Err(VmError::GuestAgent("KakaoTalk repair timed out".to_string()).into())
+        Err(VmError::GuestAgent("Winbridge repair timed out".to_string()).into())
     }
 
     pub async fn repair_wallpaper(&self) -> WinbridgeResult<String> {
@@ -251,7 +251,7 @@ impl VmManager {
     }
 
     pub async fn install_url_forwarder(&self, icon_ico: &[u8]) -> WinbridgeResult<String> {
-        self.write_guest_file_base64_chunked("C:\\winbridge\\winbridge-kakaotalk.ico", icon_ico)
+        self.write_guest_file_base64_chunked("C:\\winbridge\\winbridge.ico", icon_ico)
             .await?;
         let command = install_url_forwarder_powershell_command();
         let output = self.run_powershell_capture(&command, 10, 40).await?;

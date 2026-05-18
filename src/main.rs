@@ -141,10 +141,10 @@ fn lifecycle_summary(lifecycle: config::LifecycleConfig) -> String {
 fn repair_notification_body(action: &str, result: Result<&str, &str>) -> String {
     match result {
         Ok(detail) if detail.trim().is_empty() => {
-            format!("{action} completed. Next: open KakaoTalk or run doctor if the issue remains.")
+            format!("{action} completed. Next: open Winbridge or run doctor if the issue remains.")
         }
         Ok(detail) => format!(
-            "{action} completed: {}. Next: open KakaoTalk or run doctor if the issue remains.",
+            "{action} completed: {}. Next: open Winbridge or run doctor if the issue remains.",
             detail.trim()
         ),
         Err(err) => format!("{action} failed: {err}. Next: run doctor or open Windows desktop."),
@@ -262,9 +262,9 @@ fn spawn_tray_action_loop(
                         if let Err(err) = manager.ensure_active().await {
                             tracing::error!("VM wake failed: {err}");
                             let _ = action_tx.try_send(TrayAction::Notify {
-                                title: "Open KakaoTalk failed".to_string(),
+                                title: "Open Winbridge failed".to_string(),
                                 body: action_notification_body(
-                                    "Open KakaoTalk",
+                                    "Open Winbridge",
                                     Err(&err.to_string()),
                                 ),
                             });
@@ -275,9 +275,9 @@ fn spawn_tray_action_loop(
                         {
                             tracing::error!("RDP readiness wait failed: {err}");
                             let _ = action_tx.try_send(TrayAction::Notify {
-                                title: "Open KakaoTalk failed".to_string(),
+                                title: "Open Winbridge failed".to_string(),
                                 body: action_notification_body(
-                                    "Open KakaoTalk",
+                                    "Open Winbridge",
                                     Err(&err.to_string()),
                                 ),
                             });
@@ -316,8 +316,8 @@ fn spawn_tray_action_loop(
                     {
                         tracing::error!("RDP window open failed: {err}");
                         let _ = action_tx.try_send(TrayAction::Notify {
-                            title: "Open KakaoTalk failed".to_string(),
-                            body: action_notification_body("Open KakaoTalk", Err(&err.to_string())),
+                            title: "Open Winbridge failed".to_string(),
+                            body: action_notification_body("Open Winbridge", Err(&err.to_string())),
                         });
                     } else {
                         let _ = action_tx.try_send(TrayAction::WindowOpened);
@@ -358,11 +358,11 @@ fn spawn_tray_action_loop(
                     let action_tx = action_tx.clone();
                     handle.spawn(async move {
                         if let Err(err) = manager.ensure_active().await {
-                            tracing::error!("VM wake before KakaoTalk repair failed: {err}");
+                            tracing::error!("VM wake before Winbridge repair failed: {err}");
                             let _ = action_tx.try_send(TrayAction::Notify {
-                                title: "KakaoTalk repair failed".to_string(),
+                                title: "Winbridge repair failed".to_string(),
                                 body: repair_notification_body(
-                                    "KakaoTalk repair",
+                                    "Winbridge repair",
                                     Err(&err.to_string()),
                                 ),
                             });
@@ -370,18 +370,18 @@ fn spawn_tray_action_loop(
                         }
                         match manager.repair_kakaotalk().await {
                             Ok(detail) => {
-                                tracing::info!("KakaoTalk repair requested: {detail}");
+                                tracing::info!("Winbridge repair requested: {detail}");
                                 let _ = action_tx.try_send(TrayAction::Notify {
-                                    title: "KakaoTalk repair requested".to_string(),
-                                    body: repair_notification_body("KakaoTalk repair", Ok(&detail)),
+                                    title: "Winbridge repair requested".to_string(),
+                                    body: repair_notification_body("Winbridge repair", Ok(&detail)),
                                 });
                             }
                             Err(err) => {
-                                tracing::error!("KakaoTalk repair failed: {err}");
+                                tracing::error!("Winbridge repair failed: {err}");
                                 let _ = action_tx.try_send(TrayAction::Notify {
-                                    title: "KakaoTalk repair failed".to_string(),
+                                    title: "Winbridge repair failed".to_string(),
                                     body: repair_notification_body(
-                                        "KakaoTalk repair",
+                                        "Winbridge repair",
                                         Err(&err.to_string()),
                                     ),
                                 });
@@ -517,7 +517,7 @@ fn main() {
                 }
             }
             Some(cli::Command::RepairKakao) => {
-                if let Err(err) = run_repair_kakao().await {
+                if let Err(err) = run_repair_winbridge().await {
                     eprintln!("repair-kakao 실패: {err}");
                     std::process::exit(1);
                 }
@@ -581,7 +581,7 @@ async fn run_doctor() -> error::WinbridgeResult<()> {
     Ok(())
 }
 
-async fn run_repair_kakao() -> error::WinbridgeResult<()> {
+async fn run_repair_winbridge() -> error::WinbridgeResult<()> {
     let cfg = config::WinbridgeConfig::load()?;
     let backend = vm::libvirt_backend::LibvirtBackendImpl::open(&cfg.libvirt_uri)?;
     let manager = vm::VmManager::new(Arc::new(backend), cfg.vm_name.clone());
@@ -589,7 +589,7 @@ async fn run_repair_kakao() -> error::WinbridgeResult<()> {
     manager.ensure_active().await?;
     let detail = manager.repair_kakaotalk().await?;
     if detail.is_empty() {
-        println!("KakaoTalk repair requested through QEMU guest agent");
+        println!("Winbridge repair requested through QEMU guest agent");
     } else {
         println!("{detail}");
     }
@@ -617,7 +617,7 @@ async fn run_install_url_forwarder() -> error::WinbridgeResult<()> {
     let manager = vm::VmManager::new(Arc::new(backend), cfg.vm_name.clone());
 
     manager.ensure_active().await?;
-    let icon_ico = desktop::installed_kakaotalk_icon_ico()?;
+    let icon_ico = desktop::installed_winbridge_icon_ico()?;
     let detail = manager.install_url_forwarder(&icon_ico).await?;
     if detail.is_empty() {
         println!("Winbridge URL forwarder installed");
@@ -841,7 +841,7 @@ async fn run_tray() -> error::WinbridgeResult<()> {
         Arc::new(|_| cli::DisplayStrategy::StableSlots),
     );
 
-    let open_kakao: Arc<dyn Fn() + Send + Sync> = {
+    let open_winbridge: Arc<dyn Fn() + Send + Sync> = {
         let action_tx = action_tx.clone();
         Arc::new(move || {
             let _ = action_tx.try_send(TrayAction::Open {
@@ -855,7 +855,7 @@ async fn run_tray() -> error::WinbridgeResult<()> {
             let _ = action_tx.try_send(tray_quit_action(cfg.lifecycle.quit));
         })
     };
-    let repair_kakao: Arc<dyn Fn() + Send + Sync> = {
+    let repair_winbridge: Arc<dyn Fn() + Send + Sync> = {
         let action_tx = action_tx.clone();
         Arc::new(move || {
             let _ = action_tx.try_send(TrayAction::RepairKakao);
@@ -868,14 +868,14 @@ async fn run_tray() -> error::WinbridgeResult<()> {
         })
     };
 
-    let _kakaotalk_tray_handle = tray::spawn_kakaotalk_tray(tray::KakaoTalkTray {
-        on_open: open_kakao.clone(),
-        on_repair: repair_kakao.clone(),
+    let _winbridge_app_tray_handle = tray::spawn_winbridge_app_tray(tray::WinbridgeAppTray {
+        on_open: open_winbridge.clone(),
+        on_repair: repair_winbridge.clone(),
         on_quit: quit_winbridge.clone(),
     });
 
     let _tray_handle = tray::spawn_tray(tray::WinbridgeTray {
-        on_open_kakao: open_kakao,
+        on_open_winbridge: open_winbridge,
         on_open_desktop: {
             let action_tx = action_tx.clone();
             Arc::new(move || {
@@ -884,7 +884,7 @@ async fn run_tray() -> error::WinbridgeResult<()> {
                 });
             })
         },
-        on_repair_kakao: repair_kakao,
+        on_repair_winbridge: repair_winbridge,
         on_repair_wallpaper: repair_wallpaper,
         on_pause: {
             let action_tx = action_tx.clone();
@@ -966,10 +966,10 @@ async fn run_start(
             let _ = activate_action_tx.try_send(TrayAction::WindowOpened);
         }
     });
-    let _kakaotalk_tray_handle = if start_policy == StartProcessPolicy::HoldTrayAfterWindowClose {
+    let _winbridge_app_tray_handle = if start_policy == StartProcessPolicy::HoldTrayAfterWindowClose {
         let action_tx = action_tx.clone();
         let quit_action_tx = action_tx.clone();
-        Some(tray::spawn_kakaotalk_tray(tray::KakaoTalkTray {
+        Some(tray::spawn_winbridge_app_tray(tray::WinbridgeAppTray {
             on_open: Arc::new(move || {
                 let _ = action_tx.try_send(TrayAction::Open {
                     mode: cli::WindowMode::App,
@@ -990,7 +990,7 @@ async fn run_start(
     };
     let _tray_handle = if start_policy == StartProcessPolicy::HoldTrayAfterWindowClose {
         Some(tray::spawn_tray(tray::WinbridgeTray {
-            on_open_kakao: {
+            on_open_winbridge: {
                 let action_tx = action_tx.clone();
                 Arc::new(move || {
                     let _ = action_tx.try_send(TrayAction::Open {
@@ -1006,7 +1006,7 @@ async fn run_start(
                     });
                 })
             },
-            on_repair_kakao: {
+            on_repair_winbridge: {
                 let action_tx = action_tx.clone();
                 Arc::new(move || {
                     let _ = action_tx.try_send(TrayAction::RepairKakao);
@@ -1102,7 +1102,7 @@ fn rdp_window_options(
     display: cli::DisplayStrategy,
 ) -> rdp::RdpWindowOptions {
     match mode {
-        cli::WindowMode::App => rdp::RdpWindowOptions::kakaotalk_app()
+        cli::WindowMode::App => rdp::RdpWindowOptions::winbridge_app()
             .with_display_strategy(rdp_display_strategy(display)),
         cli::WindowMode::Desktop => match display {
             cli::DisplayStrategy::StableSlots => rdp::RdpWindowOptions::new("Windows Desktop"),
@@ -1216,20 +1216,19 @@ fn run_install_desktop_entry(exec: Option<std::path::PathBuf>) -> error::Winbrid
         Some(path) => path,
         None => std::env::current_exe()?,
     };
-    let installed = desktop::install_kakaotalk_desktop_entry(&executable)?;
+    let installed = desktop::install_winbridge_desktop_entry(&executable)?;
 
     println!(
-        "winbridge desktop entry installed:\n  {}\n  {}\n  {}\n  {}",
+        "winbridge desktop entry installed:\n  {}\n  {}\n  {}",
         installed.desktop_entry_path.display(),
         installed.icon_path.display(),
-        installed.command_path.display(),
         installed.autostart_entry_path.display()
     );
     Ok(())
 }
 
 fn run_uninstall_desktop_entry() -> error::WinbridgeResult<()> {
-    let uninstalled = desktop::uninstall_kakaotalk_desktop_entry()?;
+    let uninstalled = desktop::uninstall_winbridge_desktop_entry()?;
 
     println!("winbridge desktop entry removed:");
     for path in uninstalled.removed_paths {
@@ -1455,18 +1454,18 @@ mod tests {
 
     #[test]
     fn tray_repair_notification_body_includes_next_action() {
-        let body = repair_notification_body("KakaoTalk repair", Err("boom"));
+        let body = repair_notification_body("Winbridge repair", Err("boom"));
 
-        assert!(body.contains("KakaoTalk repair failed"));
+        assert!(body.contains("Winbridge repair failed"));
         assert!(body.contains("run doctor"));
         assert!(body.contains("open Windows desktop"));
     }
 
     #[test]
     fn tray_action_notification_body_includes_next_action() {
-        let body = action_notification_body("Open KakaoTalk", Err("boom"));
+        let body = action_notification_body("Open Winbridge", Err("boom"));
 
-        assert!(body.contains("Open KakaoTalk failed"));
+        assert!(body.contains("Open Winbridge failed"));
         assert!(body.contains("run doctor"));
         assert!(body.contains("open Windows desktop"));
     }
@@ -1553,7 +1552,7 @@ mod tests {
     #[test]
     fn winbridge_desktop_entry_launches_app_mode_with_icon_identity() {
         let entry =
-            desktop::kakaotalk_desktop_entry(std::path::Path::new("/opt/winbridge/bin/winbridge"));
+            desktop::winbridge_desktop_entry(std::path::Path::new("/opt/winbridge/bin/winbridge"));
 
         assert!(entry.contains("Name=winbridge"));
         assert!(entry.contains("Icon=winbridge"));

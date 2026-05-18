@@ -4,7 +4,7 @@ $BaseDir = 'C:\winbridge'
 $QueueDir = Join-Path $BaseDir 'url-queue'
 $ForwarderPath = Join-Path $BaseDir 'open-url-on-host.ps1'
 $ForwarderExePath = Join-Path $BaseDir 'WinbridgeUrlForwarder.exe'
-$ForwarderIconPath = Join-Path $BaseDir 'winbridge-kakaotalk.ico'
+$ForwarderIconPath = Join-Path $BaseDir 'winbridge.ico'
 $LogPath = Join-Path $BaseDir 'url-forwarder.log'
 
 New-Item -Path $BaseDir -ItemType Directory -Force | Out-Null

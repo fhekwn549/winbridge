@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "winbridge", version, about = "Linux-native KakaoTalk manager")]
+#[command(name = "winbridge", version, about = "Linux-native Windows app bridge")]
 pub struct Cli {
     #[arg(long, global = true)]
     pub verbose: bool,
@@ -54,7 +54,7 @@ pub enum Command {
         output: Option<PathBuf>,
     },
 
-    /// Restart and foreground KakaoTalk through QEMU guest agent.
+    /// Restart and foreground the Winbridge app through QEMU guest agent.
     RepairKakao,
 
     /// Restore Windows wallpaper from a reachable source or theme cache.

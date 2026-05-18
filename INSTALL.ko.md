@@ -162,7 +162,7 @@ export WINBRIDGE_ISO_SHA256="$(sha256sum "$WINBRIDGE_ISO_DEST" | awk '{print $1}
 scripts/host/08-install-linux-app.sh
 ```
 
-이 명령은 `target/release/winbridge`를 빌드하고 `~/.local/bin/winbridge`에 설치한 뒤 KakaoTalk 앱 런처와 로그인 자동시작 항목을 등록합니다.
+이 명령은 `target/release/winbridge`를 빌드하고 `~/.local/bin/winbridge`에 설치한 뒤 winbridge 앱 런처와 로그인 자동시작 항목을 등록합니다.
 
 GNOME 앱 목록이나 Dock에서 winbridge 아이콘이 보이지 않으면 한 번 로그아웃 후 다시 로그인하세요. 런처는 `~/.local/bin/winbridge start --mode app`을 실행하므로 VM이 꺼져 있어도 아이콘 클릭으로 VM 시작 또는 재개 후 KakaoTalk을 열 수 있습니다.
 
@@ -186,7 +186,7 @@ Windows는 최종 기본앱 선택을 `UserChoice` hash로 보호합니다. winb
 winbridge
 ```
 
-상단 트레이 아이콘에서 `Open KakaoTalk`을 누르거나, 앱 목록에서 KakaoTalk을 실행합니다.
+상단 트레이 아이콘에서 `Open Winbridge`를 누르거나, 앱 목록에서 winbridge를 실행합니다.
 
 터미널에서 바로 KakaoTalk 창만 열 수도 있습니다.
 

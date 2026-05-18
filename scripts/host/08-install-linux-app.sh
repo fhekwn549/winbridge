@@ -18,7 +18,6 @@ Builds the release binary and installs the Linux app integration for this user:
   - $WINBRIDGE_INSTALL_BIN_DIR/$WINBRIDGE_INSTALL_NAME
   - ~/.local/share/applications/dev.winbridge.WinbridgeApp.desktop
   - ~/.local/share/icons/hicolor/256x256/apps/winbridge.png
-  - ~/.local/bin/kakaotalk
   - ~/.config/autostart/dev.winbridge.WinbridgeApp.desktop
 
 The desktop launcher runs:

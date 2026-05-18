@@ -316,7 +316,7 @@ impl RdpWindowOptions {
         }
     }
 
-    pub fn kakaotalk_app() -> Self {
+    pub fn winbridge_app() -> Self {
         Self {
             title: "winbridge".to_string(),
             icon_name: Some(crate::desktop::WINBRIDGE_ICON_NAME),
@@ -1571,7 +1571,7 @@ mod tests {
 
     #[test]
     fn app_mode_uses_file_dialog_sized_single_desktop_for_app_window() {
-        let options = RdpWindowOptions::kakaotalk_app();
+        let options = RdpWindowOptions::winbridge_app();
 
         assert_eq!(options.title, "winbridge");
         assert_eq!(options.icon_name, Some(crate::desktop::WINBRIDGE_ICON_NAME));
@@ -1592,7 +1592,7 @@ mod tests {
 
     #[test]
     fn app_mode_can_enable_experimental_multimon_without_changing_viewport() {
-        let options = RdpWindowOptions::kakaotalk_app()
+        let options = RdpWindowOptions::winbridge_app()
             .with_display_strategy(RdpDisplayStrategy::ExperimentalMultimon);
 
         assert_eq!(

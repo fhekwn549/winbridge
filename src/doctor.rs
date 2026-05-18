@@ -452,7 +452,7 @@ fn add_kakaotalk_check(report: &mut DoctorReport, diagnostics: &GuestDiagnostics
                     kakao.process_count
                 ),
             )
-            .with_next_action("if tray Open KakaoTalk does not show the visible window, run winbridge repair-kakao"),
+            .with_next_action("if tray Open Winbridge does not show the visible window, run winbridge repair-kakao"),
         );
     } else {
         report.push(
@@ -461,7 +461,7 @@ fn add_kakaotalk_check(report: &mut DoctorReport, diagnostics: &GuestDiagnostics
                 "guest service-session kakaotalk",
                 "process not visible to qemu-ga service session",
             )
-            .with_next_action("open KakaoTalk from tray first; if the visible window is broken, run winbridge repair-kakao"),
+            .with_next_action("open Winbridge from tray first; if the visible window is broken, run winbridge repair-kakao"),
         );
     }
 }
@@ -634,7 +634,7 @@ mod tests {
             .next_action
             .as_ref()
             .unwrap()
-            .contains("tray Open KakaoTalk"));
+            .contains("tray Open Winbridge"));
         assert_eq!(checks[2].status, DoctorStatus::Warn);
         assert_eq!(checks[3].status, DoctorStatus::Warn);
         assert_eq!(checks[4].name, "guest service-session updates");
@@ -675,7 +675,7 @@ mod tests {
             .next_action
             .as_ref()
             .unwrap()
-            .contains("open KakaoTalk"));
+            .contains("open Winbridge"));
     }
 
     #[test]
