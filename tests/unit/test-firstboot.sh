@@ -129,6 +129,8 @@ echo "$url_forwarder_content" | grep -q "url-queue" \
     || { echo "FAIL: URL forwarder does not write to the host-polled queue"; exit 1; }
 echo "$url_forwarder_content" | grep -q "WinbridgeUrlForwarder.exe" \
     || { echo "FAIL: URL forwarder does not build/register a dedicated executable"; exit 1; }
+echo "$url_forwarder_content" | grep -q "win32icon" \
+    || { echo "FAIL: URL forwarder executable does not embed the winbridge icon"; exit 1; }
 echo "$url_forwarder_content" | grep -q "https" \
     || { echo "FAIL: URL forwarder does not handle https"; exit 1; }
 

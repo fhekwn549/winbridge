@@ -131,7 +131,13 @@ $CscPath = @(
     "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\csc.exe"
 ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 if ($CscPath) {
-    $proc = Start-Process -FilePath $CscPath -ArgumentList '/nologo', '/target:winexe', ('/out:' + $ForwarderExePath), $ForwarderSourcePath -Wait -PassThru
+    $compileArgs = @('/nologo', '/target:winexe')
+    if (Test-Path $ForwarderIconPath) {
+        $compileArgs += '/win32icon:' + $ForwarderIconPath
+    }
+    $compileArgs += ('/out:' + $ForwarderExePath)
+    $compileArgs += $ForwarderSourcePath
+    $proc = Start-Process -FilePath $CscPath -ArgumentList $compileArgs -Wait -PassThru
     if ($proc.ExitCode -ne 0) {
         throw "csc.exe failed to build WinbridgeUrlForwarder.exe, exit code $($proc.ExitCode)"
     }
