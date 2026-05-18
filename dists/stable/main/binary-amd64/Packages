@@ -1,0 +1,17 @@
+Package: winbridge
+Version: 0.1.0
+Architecture: amd64
+Maintainer: fhekwn549 <fhekwn549@users.noreply.github.com>
+Depends: libc6 (>= 2.35), libgtk-4-1, libvirt0, libvirt-daemon-system, libvirt-clients, qemu-system-x86, qemu-utils
+Recommends: gnome-shell-extension-appindicator
+Filename: pool/main/w/winbridge/winbridge_0.1.0_amd64.deb
+Size: 7151142
+MD5sum: d9e7026c04023989e999a4d41e36df65
+SHA1: bf432ce539cf713e056067e6518dede739f07bf5
+SHA256: 6afa95cd7d138aa64ac10624c898aad441ce18b510814bd9cb1afadcb8959033
+Section: net
+Priority: optional
+Description: Linux-native Windows app bridge for KakaoTalk
+ winbridge runs the official Windows KakaoTalk client inside a libvirt/KVM
+ Windows VM and exposes it as a small Linux desktop app through RDP.
+

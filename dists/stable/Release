@@ -1,0 +1,24 @@
+Architectures: amd64
+Codename: stable
+Components: main
+Date: Mon, 18 May 2026 05:50:04 +0000
+Description: winbridge APT repository
+Label: winbridge
+Origin: winbridge
+Suite: stable
+MD5Sum:
+ 8877ad59c4b8cbb40ff0cbe30918c469              180 Release
+ 2745594d11354c0908d2fa4cc065a8a5              745 main/binary-amd64/Packages
+ 09d63fee1d7b11120fdb298cbc5e9633              510 main/binary-amd64/Packages.gz
+SHA1:
+ 01839cc3b708dcb178878d7b147d60dd9586c876              180 Release
+ 0cdd21e30235de505d27125c9ebdf4f10530d362              745 main/binary-amd64/Packages
+ 2449dc197e52aed021057d05147e503a04bcbd34              510 main/binary-amd64/Packages.gz
+SHA256:
+ 693d9ecf18721c6328d8e2d213c002ab9a83fe43fff22d38700b1df653fd191c              180 Release
+ e3f178cd38101af884910f19e5f5a5bed504409f9736659636f165158e29428a              745 main/binary-amd64/Packages
+ 4930616021cd3a2aa132adbc24a46f9a583213cf46ba857240db30a21b364e8e              510 main/binary-amd64/Packages.gz
+SHA512:
+ 13880b7266fcc543681f9b939307943bd328edc88d795b067854d5a5dafd2938ad1c61bf29298d2040c3ce3ce7b8c9279c942e4f5e4507413a945573cdad70a8              180 Release
+ 65b0bcae4b64f2254322997f0fe8a24e83a5071785c6e620fc2bbf10f9bb6d5a5d79843b19757e56bb63d16484e26f113ef63186ca46573e7f156cc4975f1a7e              745 main/binary-amd64/Packages
+ 7d9cca667c4e4180d0c9ca4c2f62122454a6ff81b964aba430b15606aac76e66a4661993f950054d29a3e24de0b070301aeda08f68bffed7921d0abea2e605ca              510 main/binary-amd64/Packages.gz
