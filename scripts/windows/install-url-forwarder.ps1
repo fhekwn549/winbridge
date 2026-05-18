@@ -13,8 +13,13 @@ function Set-RegistryDefaultValue {
         [string]$Path,
         [string]$Value
     )
-    $relative = $Path -replace '^HKCU:\\', ''
-    $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($relative)
+    $root = if ($Path -match '^HKLM:\\') {
+        [Microsoft.Win32.Registry]::LocalMachine
+    } else {
+        [Microsoft.Win32.Registry]::CurrentUser
+    }
+    $relative = $Path -replace '^HKCU:\\', '' -replace '^HKLM:\\', ''
+    $key = $root.CreateSubKey($relative)
     if (-not $key) {
         throw "failed to open registry key for write: $Path"
     }
@@ -23,6 +28,18 @@ function Set-RegistryDefaultValue {
     } finally {
         $key.Close()
     }
+}
+
+function Set-RegistryStringValue {
+    param(
+        [string]$Path,
+        [string]$Name,
+        [string]$Value
+    )
+    if (-not (Test-Path $Path)) {
+        New-Item -Path $Path -Force | Out-Null
+    }
+    Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type String
 }
 
 $Forwarder = @'
@@ -62,23 +79,35 @@ Set-Content -Path $ForwarderPath -Value $Forwarder -Encoding UTF8
 
 $Command = 'powershell.exe -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File "' + $ForwarderPath + '" "%1"'
 $ProgId = 'Winbridge.UrlForwarder'
-$ProgKey = "HKCU:\Software\Classes\$ProgId"
-$ClientKey = 'HKCU:\Software\Clients\StartMenuInternet\WinbridgeUrlForwarder'
-$CapabilitiesKey = "$ClientKey\Capabilities"
 
-New-Item -Path "$ProgKey\shell\open\command" -Force | Out-Null
-Set-RegistryDefaultValue -Path $ProgKey -Value 'Winbridge URL Forwarder'
-Set-RegistryDefaultValue -Path "$ProgKey\shell\open\command" -Value $Command
+foreach ($Root in @('HKCU', 'HKLM')) {
+    $ProgKey = "${Root}:\Software\Classes\$ProgId"
+    $ClientKey = "${Root}:\Software\Clients\StartMenuInternet\WinbridgeUrlForwarder"
+    $CapabilitiesKey = "$ClientKey\Capabilities"
+    $RegisteredApplicationsKey = "${Root}:\Software\RegisteredApplications"
 
-New-Item -Path "$CapabilitiesKey\URLAssociations" -Force | Out-Null
-Set-RegistryDefaultValue -Path $ClientKey -Value 'Winbridge URL Forwarder'
-Set-RegistryDefaultValue -Path "$ClientKey\shell\open\command" -Value $Command
-Set-ItemProperty -Path $CapabilitiesKey -Name 'ApplicationName' -Value 'Winbridge URL Forwarder'
-Set-ItemProperty -Path $CapabilitiesKey -Name 'ApplicationDescription' -Value 'Open Windows VM links on the Linux host through winbridge.'
-Set-ItemProperty -Path "$CapabilitiesKey\URLAssociations" -Name 'http' -Value $ProgId
-Set-ItemProperty -Path "$CapabilitiesKey\URLAssociations" -Name 'https' -Value $ProgId
-New-Item -Path 'HKCU:\Software\RegisteredApplications' -Force | Out-Null
-Set-ItemProperty -Path 'HKCU:\Software\RegisteredApplications' -Name 'Winbridge URL Forwarder' -Value 'Software\Clients\StartMenuInternet\WinbridgeUrlForwarder\Capabilities'
+    New-Item -Path "$ProgKey\shell\open\command" -Force | Out-Null
+    Set-RegistryDefaultValue -Path $ProgKey -Value 'Winbridge URL Forwarder'
+    Set-RegistryDefaultValue -Path "$ProgKey\shell\open\command" -Value $Command
+    Set-RegistryStringValue -Path $ProgKey -Name 'FriendlyTypeName' -Value 'Winbridge URL Forwarder'
+    Set-RegistryStringValue -Path $ProgKey -Name 'URL Protocol' -Value ''
+
+    New-Item -Path "$ClientKey\shell\open\command" -Force | Out-Null
+    New-Item -Path "$ClientKey\shell\properties\command" -Force | Out-Null
+    New-Item -Path "$CapabilitiesKey\URLAssociations" -Force | Out-Null
+    New-Item -Path "$CapabilitiesKey\StartMenu" -Force | Out-Null
+
+    Set-RegistryDefaultValue -Path $ClientKey -Value 'Winbridge URL Forwarder'
+    Set-RegistryDefaultValue -Path "$ClientKey\shell\open\command" -Value $Command
+    Set-RegistryDefaultValue -Path "$ClientKey\shell\properties\command" -Value $Command
+    Set-RegistryStringValue -Path $CapabilitiesKey -Name 'ApplicationName' -Value 'Winbridge URL Forwarder'
+    Set-RegistryStringValue -Path $CapabilitiesKey -Name 'ApplicationDescription' -Value 'Open Windows VM links on the Linux host through winbridge.'
+    Set-RegistryStringValue -Path $CapabilitiesKey -Name 'ApplicationIcon' -Value 'powershell.exe,0'
+    Set-RegistryStringValue -Path "$CapabilitiesKey\StartMenu" -Name 'StartMenuInternet' -Value 'WinbridgeUrlForwarder'
+    Set-RegistryStringValue -Path "$CapabilitiesKey\URLAssociations" -Name 'http' -Value $ProgId
+    Set-RegistryStringValue -Path "$CapabilitiesKey\URLAssociations" -Name 'https' -Value $ProgId
+    Set-RegistryStringValue -Path $RegisteredApplicationsKey -Name 'Winbridge URL Forwarder' -Value 'Software\Clients\StartMenuInternet\WinbridgeUrlForwarder\Capabilities'
+}
 
 foreach ($Scheme in @('http', 'https')) {
     $SchemeKey = "HKCU:\Software\Classes\$Scheme"
