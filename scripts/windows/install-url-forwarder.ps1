@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 $BaseDir = 'C:\winbridge'
 $QueueDir = Join-Path $BaseDir 'url-queue'
 $ForwarderPath = Join-Path $BaseDir 'open-url-on-host.ps1'
+$ForwarderExePath = Join-Path $BaseDir 'WinbridgeUrlForwarder.exe'
 $LogPath = Join-Path $BaseDir 'url-forwarder.log'
 
 New-Item -Path $BaseDir -ItemType Directory -Force | Out-Null
@@ -77,7 +78,67 @@ try {
 
 Set-Content -Path $ForwarderPath -Value $Forwarder -Encoding UTF8
 
-$Command = 'powershell.exe -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File "' + $ForwarderPath + '" "%1"'
+$ForwarderSource = @'
+using System;
+using System.IO;
+using System.Text;
+
+[assembly: System.Reflection.AssemblyTitle("Winbridge URL Forwarder")]
+[assembly: System.Reflection.AssemblyProduct("Winbridge URL Forwarder")]
+[assembly: System.Reflection.AssemblyDescription("Open Windows VM links on the Linux host through winbridge.")]
+
+public static class Program
+{
+    public static int Main(string[] args)
+    {
+        string baseDir = @"C:\winbridge";
+        string queueDir = Path.Combine(baseDir, "url-queue");
+        string logPath = Path.Combine(baseDir, "url-forwarder.log");
+        try
+        {
+            Directory.CreateDirectory(queueDir);
+            if (args.Length < 1) throw new ArgumentException("missing URL argument");
+            Uri uri = new Uri(args[0]);
+            if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+            {
+                throw new ArgumentException("blocked scheme: " + uri.Scheme);
+            }
+
+            string file = Path.Combine(queueDir, DateTime.UtcNow.ToString("yyyyMMddHHmmssfff") + "-" + Guid.NewGuid().ToString("N") + ".url");
+            File.WriteAllText(file, uri.AbsoluteUri, new UTF8Encoding(false));
+            File.AppendAllText(logPath, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " queued " + uri.AbsoluteUri + Environment.NewLine, Encoding.UTF8);
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                Directory.CreateDirectory(baseDir);
+                File.AppendAllText(logPath, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " failed: " + ex.Message + Environment.NewLine, Encoding.UTF8);
+            }
+            catch {}
+            return 2;
+        }
+    }
+}
+'@
+
+$ForwarderSourcePath = Join-Path $BaseDir 'WinbridgeUrlForwarder.cs'
+Set-Content -Path $ForwarderSourcePath -Value $ForwarderSource -Encoding UTF8
+$CscPath = @(
+    "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe",
+    "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\csc.exe"
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($CscPath) {
+    $proc = Start-Process -FilePath $CscPath -ArgumentList '/nologo', '/target:winexe', ('/out:' + $ForwarderExePath), $ForwarderSourcePath -Wait -PassThru
+    if ($proc.ExitCode -ne 0) {
+        throw "csc.exe failed to build WinbridgeUrlForwarder.exe, exit code $($proc.ExitCode)"
+    }
+} else {
+    throw 'csc.exe not found; cannot build WinbridgeUrlForwarder.exe'
+}
+
+$Command = '"' + $ForwarderExePath + '" "%1"'
 $ProgId = 'Winbridge.UrlForwarder'
 
 foreach ($Root in @('HKCU', 'HKLM')) {
@@ -91,6 +152,7 @@ foreach ($Root in @('HKCU', 'HKLM')) {
     Set-RegistryDefaultValue -Path "$ProgKey\shell\open\command" -Value $Command
     Set-RegistryStringValue -Path $ProgKey -Name 'FriendlyTypeName' -Value 'Winbridge URL Forwarder'
     Set-RegistryStringValue -Path $ProgKey -Name 'URL Protocol' -Value ''
+    Set-RegistryDefaultValue -Path "${Root}:\Software\Classes\Applications\WinbridgeUrlForwarder.exe\shell\open\command" -Value $Command
 
     New-Item -Path "$ClientKey\shell\open\command" -Force | Out-Null
     New-Item -Path "$ClientKey\shell\properties\command" -Force | Out-Null
@@ -102,7 +164,7 @@ foreach ($Root in @('HKCU', 'HKLM')) {
     Set-RegistryDefaultValue -Path "$ClientKey\shell\properties\command" -Value $Command
     Set-RegistryStringValue -Path $CapabilitiesKey -Name 'ApplicationName' -Value 'Winbridge URL Forwarder'
     Set-RegistryStringValue -Path $CapabilitiesKey -Name 'ApplicationDescription' -Value 'Open Windows VM links on the Linux host through winbridge.'
-    Set-RegistryStringValue -Path $CapabilitiesKey -Name 'ApplicationIcon' -Value 'powershell.exe,0'
+    Set-RegistryStringValue -Path $CapabilitiesKey -Name 'ApplicationIcon' -Value "$ForwarderExePath,0"
     Set-RegistryStringValue -Path "$CapabilitiesKey\StartMenu" -Name 'StartMenuInternet' -Value 'WinbridgeUrlForwarder'
     Set-RegistryStringValue -Path "$CapabilitiesKey\URLAssociations" -Name 'http' -Value $ProgId
     Set-RegistryStringValue -Path "$CapabilitiesKey\URLAssociations" -Name 'https' -Value $ProgId
