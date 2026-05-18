@@ -17,6 +17,7 @@ Usage: $0 [--help|--dry-run]
 Builds the release binary and installs the Linux app integration for this user:
   - $WINBRIDGE_INSTALL_BIN_DIR/$WINBRIDGE_INSTALL_NAME
   - ~/.local/share/applications/dev.winbridge.WinbridgeApp.desktop
+  - ~/.local/share/applications/winbridge.desktop
   - ~/.local/share/icons/hicolor/256x256/apps/winbridge.png
   - ~/.config/autostart/dev.winbridge.WinbridgeApp.desktop
 
@@ -71,9 +72,11 @@ if command -v gtk-update-icon-cache >/dev/null 2>&1; then
 fi
 
 touch "$HOME/.local/share/applications" "$HOME/.local/share/applications/dev.winbridge.WinbridgeApp.desktop"
+touch "$HOME/.local/share/applications/winbridge.desktop"
 
 log_info "Linux app installed:"
 log_info "  binary: $INSTALL_BIN"
 log_info "  launcher: ~/.local/share/applications/dev.winbridge.WinbridgeApp.desktop"
+log_info "  launcher alias: ~/.local/share/applications/winbridge.desktop"
 log_info "  autostart: ~/.config/autostart/dev.winbridge.WinbridgeApp.desktop"
 log_info "You can now launch winbridge from the app icon even when the VM is off."

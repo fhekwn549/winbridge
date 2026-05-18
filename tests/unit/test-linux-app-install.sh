@@ -31,6 +31,8 @@ grep -q 'WINBRIDGE_BIN="$HOME/.local/bin/winbridge"' "$REPO_ROOT/uninstall.sh" \
     || { echo "FAIL: uninstall.sh does not remove the installed winbridge binary"; exit 1; }
 grep -q 'dev.winbridge.WinbridgeApp.desktop' "$REPO_ROOT/scripts/host/08-install-linux-app.sh" \
     || { echo "FAIL: Linux app installer does not install a winbridge desktop entry"; exit 1; }
+grep -q 'winbridge.desktop' "$REPO_ROOT/scripts/host/08-install-linux-app.sh" \
+    || { echo "FAIL: Linux app installer does not install a simple winbridge desktop alias"; exit 1; }
 grep -q 'winbridge.png' "$REPO_ROOT/scripts/host/08-install-linux-app.sh" \
     || { echo "FAIL: Linux app installer does not install the winbridge icon"; exit 1; }
 grep -q 'gtk-update-icon-cache -f -t' "$REPO_ROOT/scripts/host/08-install-linux-app.sh" \

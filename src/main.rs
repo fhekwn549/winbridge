@@ -1219,8 +1219,9 @@ fn run_install_desktop_entry(exec: Option<std::path::PathBuf>) -> error::Winbrid
     let installed = desktop::install_winbridge_desktop_entry(&executable)?;
 
     println!(
-        "winbridge desktop entry installed:\n  {}\n  {}\n  {}",
+        "winbridge desktop entry installed:\n  {}\n  {}\n  {}\n  {}",
         installed.desktop_entry_path.display(),
+        installed.desktop_alias_path.display(),
         installed.icon_path.display(),
         installed.autostart_entry_path.display()
     );

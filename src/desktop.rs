@@ -10,6 +10,7 @@ pub const WINBRIDGE_APP_APPLICATION_ID: &str = "dev.winbridge.WinbridgeApp";
 pub const WINBRIDGE_AUTOSTART_FILE_NAME: &str = "dev.winbridge.WinbridgeApp.desktop";
 pub const LEGACY_KAKAOTALK_COMMAND_NAME: &str = "kakaotalk";
 pub const WINBRIDGE_DESKTOP_FILE_NAME: &str = "dev.winbridge.WinbridgeApp.desktop";
+pub const WINBRIDGE_DESKTOP_ALIAS_FILE_NAME: &str = "winbridge.desktop";
 pub const WINBRIDGE_ICON_NAME: &str = "winbridge";
 const LEGACY_WINBRIDGE_AUTOSTART_FILE_NAME: &str = "dev.winbridge.Winbridge.desktop";
 const LEGACY_WINBRIDGE_DESKTOP_FILE_NAME: &str = "dev.winbridge.Winbridge.desktop";
@@ -23,6 +24,7 @@ pub(crate) const WINBRIDGE_ICON_PNG: &[u8] =
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstalledDesktopEntry {
     pub desktop_entry_path: PathBuf,
+    pub desktop_alias_path: PathBuf,
     pub icon_path: PathBuf,
     pub autostart_entry_path: PathBuf,
 }
@@ -95,6 +97,9 @@ pub fn install_winbridge_desktop_entry_in(
     let desktop_entry_path = data_local_dir
         .join("applications")
         .join(WINBRIDGE_DESKTOP_FILE_NAME);
+    let desktop_alias_path = data_local_dir
+        .join("applications")
+        .join(WINBRIDGE_DESKTOP_ALIAS_FILE_NAME);
     let icon_path = data_local_dir
         .join("icons")
         .join("hicolor")
@@ -124,6 +129,10 @@ pub fn install_winbridge_desktop_entry_in(
         &desktop_entry_path,
         winbridge_desktop_entry(winbridge_executable),
     )?;
+    std::fs::write(
+        &desktop_alias_path,
+        winbridge_desktop_entry(winbridge_executable),
+    )?;
     std::fs::write(&icon_path, installed_winbridge_icon_png()?)?;
     std::fs::write(
         &autostart_entry_path,
@@ -132,6 +141,7 @@ pub fn install_winbridge_desktop_entry_in(
 
     Ok(InstalledDesktopEntry {
         desktop_entry_path,
+        desktop_alias_path,
         icon_path,
         autostart_entry_path,
     })
@@ -146,6 +156,9 @@ pub fn uninstall_winbridge_desktop_entry_in(
         data_local_dir
             .join("applications")
             .join(WINBRIDGE_DESKTOP_FILE_NAME),
+        data_local_dir
+            .join("applications")
+            .join(WINBRIDGE_DESKTOP_ALIAS_FILE_NAME),
         data_local_dir
             .join("applications")
             .join(LEGACY_WINBRIDGE_DESKTOP_FILE_NAME),
@@ -394,9 +407,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(uninstalled.removed_paths.len(), 3);
+        assert_eq!(uninstalled.removed_paths.len(), 4);
         assert_eq!(uninstalled.missing_paths.len(), 6);
         assert!(!installed.desktop_entry_path.exists());
+        assert!(!installed.desktop_alias_path.exists());
         assert!(!installed.icon_path.exists());
         assert!(!installed.autostart_entry_path.exists());
     }
@@ -412,6 +426,6 @@ mod tests {
         .unwrap();
 
         assert!(uninstalled.removed_paths.is_empty());
-        assert_eq!(uninstalled.missing_paths.len(), 9);
+        assert_eq!(uninstalled.missing_paths.len(), 10);
     }
 }
