@@ -185,9 +185,6 @@ foreach ($Scheme in @('http', 'https')) {
     Set-RegistryDefaultValue -Path $SchemeKey -Value "URL:$Scheme"
     Set-ItemProperty -Path $SchemeKey -Name 'URL Protocol' -Value ''
     Set-RegistryDefaultValue -Path "$SchemeKey\shell\open\command" -Value $Command
-
-    $UserChoice = "HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\$Scheme\UserChoice"
-    Remove-Item -Path $UserChoice -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 "installed url forwarder: $ForwarderPath" | Out-File -FilePath $LogPath -Append -Encoding utf8
