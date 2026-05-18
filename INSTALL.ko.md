@@ -219,13 +219,26 @@ scripts/release/build-apt-repo.sh
 
 ## 8. 게스트 링크를 호스트 브라우저에서 열기
 
-새 VM 설치는 Windows 안에 `Winbridge URL Forwarder`를 이미 등록합니다. 기존 VM이거나 winbridge 업데이트 뒤 갱신하려면 아래 명령을 실행합니다.
+winbridge는 Windows KakaoTalk 안에서 누른 `http`/`https` 링크를 VM 내부 Edge가 아니라 Linux 호스트 브라우저에서 열 수 있게 합니다.
+
+새 VM 설치는 Windows 안에 `Winbridge URL Forwarder`를 기본앱 후보로 이미 등록합니다. 기존 VM이거나 winbridge 업데이트 뒤 갱신하려면 아래 명령을 실행합니다.
 
 ```bash
 winbridge install-url-forwarder
 ```
 
-그 다음 Windows VM 안에서 Settings -> Apps -> Default apps를 열고 `http`와 `https`를 각각 `Winbridge URL Forwarder`로 선택합니다.
+패키지 설치 전 소스에서 실행 중이면 아래 명령을 사용합니다.
+
+```bash
+cargo run -- install-url-forwarder
+```
+
+그 다음 Windows VM 안에서:
+
+1. **Settings -> Apps -> Default apps**를 엽니다.
+2. **Winbridge URL Forwarder**를 검색합니다.
+3. `http`와 `https`를 각각 선택합니다.
+4. KakaoTalk에서 웹 링크를 눌러 Linux 호스트 브라우저에서 열리는지 확인합니다.
 
 Windows는 최종 기본앱 선택을 `UserChoice` hash로 보호합니다. winbridge는 앱 후보 등록까지 자동 처리하지만, `http`/`https` 최종 선택은 수동으로 한 번 해야 합니다. 재부팅 뒤 Edge로 돌아가면 같은 선택을 한 번 다시 적용하세요.
 

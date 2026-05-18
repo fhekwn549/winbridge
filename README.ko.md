@@ -136,13 +136,19 @@ idle-timeout-minutes = 30         # 생략하면 비활성
 
 ### 게스트 링크
 
-winbridge는 Windows KakaoTalk 안에서 누른 링크를 Linux 호스트 브라우저로 열 수 있습니다. 새 VM 설치는 `Winbridge URL Forwarder`를 Windows 기본앱 후보로 자동 등록합니다. 기존 VM은 아래 명령으로 설치 또는 갱신합니다.
+winbridge는 Windows KakaoTalk 안에서 누른 `http`/`https` 링크를 Linux 호스트 브라우저로 열 수 있습니다. 새 VM 설치는 `Winbridge URL Forwarder`를 Windows 기본앱 후보로 자동 등록합니다. 기존 VM은 아래 명령으로 설치 또는 갱신합니다.
+
+```bash
+winbridge install-url-forwarder
+```
+
+소스에서 실행 중이면 아래 명령을 사용합니다.
 
 ```bash
 cargo run -- install-url-forwarder
 ```
 
-Windows는 최종 `http`/`https` 기본앱 선택을 `UserChoice` hash로 보호하므로 winbridge가 안전하게 강제 설정할 수 없습니다. Windows VM 안에서 Settings -> Apps -> Default apps에서 `http`와 `https`를 각각 `Winbridge URL Forwarder`로 한 번 선택하세요. 재부팅 뒤 Edge로 돌아가면 같은 선택을 한 번 다시 적용하세요.
+Windows는 최종 `http`/`https` 기본앱 선택을 `UserChoice` hash로 보호하므로 winbridge가 안전하게 강제 설정할 수 없습니다. Windows VM 안에서 **Settings -> Apps -> Default apps**를 열고 **Winbridge URL Forwarder**를 검색한 뒤 `http`와 `https`를 각각 선택하세요. 재부팅 뒤 Edge로 돌아가면 같은 선택을 한 번 다시 적용하세요.
 
 ## 아키텍처
 

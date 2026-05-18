@@ -219,13 +219,26 @@ scripts/release/build-apt-repo.sh
 
 ## 8. Open Guest Links on the Host Browser
 
-New VM installs already register `Winbridge URL Forwarder` inside Windows. For an existing VM or after updating winbridge, refresh it with:
+winbridge can make `http` and `https` links clicked inside Windows KakaoTalk open in the Linux host browser instead of Edge inside the VM.
+
+New VM installs already register `Winbridge URL Forwarder` inside Windows as a default-app candidate. For an existing VM or after updating winbridge, refresh it with:
 
 ```bash
 winbridge install-url-forwarder
 ```
 
-Then, inside the Windows VM, open Settings -> Apps -> Default apps and choose `Winbridge URL Forwarder` for both `http` and `https`.
+If running from source before installing the package, use:
+
+```bash
+cargo run -- install-url-forwarder
+```
+
+Then, inside the Windows VM:
+
+1. Open **Settings -> Apps -> Default apps**.
+2. Search for **Winbridge URL Forwarder**.
+3. Choose it for both `http` and `https`.
+4. Test from KakaoTalk by clicking a web link. It should open on the Linux host browser.
 
 Windows protects this final default-app choice with a `UserChoice` hash. winbridge registers the app candidate automatically, but the final `http`/`https` selection must be done manually once. If Windows falls back to Edge after a reboot, repeat the same selection.
 
