@@ -977,6 +977,10 @@ mod tests {
             Ok(())
         }
 
+        async fn domain_xml(&self, _vm_name: &str) -> error::WinbridgeResult<String> {
+            Ok("<domain/>".to_string())
+        }
+
         async fn qemu_agent_command(
             &self,
             _vm_name: &str,

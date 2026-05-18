@@ -1,6 +1,6 @@
 use crate::config::WinbridgeConfig;
 use crate::rdp::RdpHeadlessProbe;
-use crate::vm::{libvirt_backend::LibvirtBackendImpl, GuestDiagnostics, VmManager};
+use crate::vm::{libvirt_backend::LibvirtBackendImpl, AttachedCdrom, GuestDiagnostics, VmManager};
 use std::fmt::Write as _;
 use std::sync::Arc;
 use std::time::Duration;
@@ -175,6 +175,18 @@ pub async fn diagnose_host() -> DoctorReport {
         }
     };
 
+    match manager.attached_cdroms().await {
+        Ok(cdroms) => add_cdrom_attachment_check(&mut report, &cdroms),
+        Err(err) => report.push(
+            DoctorCheck::new(
+                DoctorStatus::Warn,
+                "vm cdrom attachments",
+                format!("unable to inspect VM XML: {err}"),
+            )
+            .with_next_action("run virsh --connect qemu:///system domblklist --details"),
+        ),
+    }
+
     let mut guest_checks_complete = false;
     if !vm_state.is_active() {
         report.push(
@@ -297,6 +309,65 @@ fn add_guest_diagnostic_checks(report: &mut DoctorReport, diagnostics: &GuestDia
     add_kakaotalk_check(report, diagnostics);
     add_themes_check(report, diagnostics);
     add_disk_check(report, diagnostics);
+    add_update_check(report, diagnostics);
+}
+
+fn add_cdrom_attachment_check(report: &mut DoctorReport, cdroms: &[AttachedCdrom]) {
+    if cdroms.is_empty() {
+        report.push(DoctorCheck::new(
+            DoctorStatus::Ok,
+            "vm cdrom attachments",
+            "no persistent CD-ROM attachments",
+        ));
+        return;
+    }
+
+    let missing: Vec<_> = cdroms
+        .iter()
+        .filter(|cdrom| cdrom.source.as_ref().is_some_and(|_| !cdrom.source_exists))
+        .collect();
+    if !missing.is_empty() {
+        let detail = missing
+            .iter()
+            .map(|cdrom| {
+                format!(
+                    "{}={}",
+                    cdrom.target,
+                    cdrom.source.as_deref().unwrap_or("<empty>")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        report.push(
+            DoctorCheck::new(
+                DoctorStatus::Fail,
+                "vm cdrom attachments",
+                format!("missing CD-ROM source(s) can block VM start/resume: {detail}"),
+            )
+            .with_next_action("detach stale CD-ROMs with virsh detach-disk <vm> <target> --config"),
+        );
+        return;
+    }
+
+    let detail = cdroms
+        .iter()
+        .map(|cdrom| {
+            format!(
+                "{}={}",
+                cdrom.target,
+                cdrom.source.as_deref().unwrap_or("<empty>")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    report.push(
+        DoctorCheck::new(
+            DoctorStatus::Warn,
+            "vm cdrom attachments",
+            format!("persistent CD-ROM attachment(s) remain; deleting these files later can block VM start/resume: {detail}"),
+        )
+        .with_next_action("detach install/driver media after setup if they are no longer needed"),
+    );
 }
 
 fn add_wallpaper_check(report: &mut DoctorReport, diagnostics: &GuestDiagnostics) {
@@ -418,12 +489,35 @@ fn add_disk_check(report: &mut DoctorReport, diagnostics: &GuestDiagnostics) {
     }
 }
 
+fn add_update_check(report: &mut DoctorReport, diagnostics: &GuestDiagnostics) {
+    let updates = &diagnostics.updates;
+    if updates.reboot_pending {
+        let detail = if updates.windows_update_reboot_required {
+            "Windows Update reboot required"
+        } else {
+            "Windows reboot pending"
+        };
+        report.push(
+            DoctorCheck::new(DoctorStatus::Warn, "guest service-session updates", detail)
+                .with_next_action(
+                    "finish Windows Update and restart Windows before relying on repair checks",
+                ),
+        );
+    } else {
+        report.push(DoctorCheck::new(
+            DoctorStatus::Ok,
+            "guest service-session updates",
+            "no pending reboot detected",
+        ));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::vm::{
         GuestDiskDiagnostics, GuestKakaoTalkDiagnostics, GuestServiceDiagnostics,
-        GuestWallpaperDiagnostics,
+        GuestUpdateDiagnostics, GuestWallpaperDiagnostics,
     };
 
     #[test]
@@ -471,6 +565,10 @@ mod tests {
                 has_main_window: true,
             },
             disk: GuestDiskDiagnostics { free_gb: 12.0 },
+            updates: GuestUpdateDiagnostics {
+                reboot_pending: false,
+                windows_update_reboot_required: false,
+            },
         };
 
         add_guest_diagnostic_checks(&mut report, &diagnostics);
@@ -482,6 +580,7 @@ mod tests {
         assert_eq!(checks[1].status, DoctorStatus::Ok);
         assert_eq!(checks[2].status, DoctorStatus::Ok);
         assert_eq!(checks[3].status, DoctorStatus::Ok);
+        assert_eq!(checks[4].status, DoctorStatus::Ok);
     }
 
     #[test]
@@ -502,6 +601,10 @@ mod tests {
                 has_main_window: false,
             },
             disk: GuestDiskDiagnostics { free_gb: 3.0 },
+            updates: GuestUpdateDiagnostics {
+                reboot_pending: true,
+                windows_update_reboot_required: true,
+            },
         };
 
         add_guest_diagnostic_checks(&mut report, &diagnostics);
@@ -517,6 +620,8 @@ mod tests {
             .contains("tray Open KakaoTalk"));
         assert_eq!(checks[2].status, DoctorStatus::Warn);
         assert_eq!(checks[3].status, DoctorStatus::Warn);
+        assert_eq!(checks[4].name, "guest service-session updates");
+        assert_eq!(checks[4].status, DoctorStatus::Warn);
     }
 
     #[test]
@@ -537,6 +642,10 @@ mod tests {
                 has_main_window: false,
             },
             disk: GuestDiskDiagnostics { free_gb: 12.0 },
+            updates: GuestUpdateDiagnostics {
+                reboot_pending: false,
+                windows_update_reboot_required: false,
+            },
         };
 
         add_guest_diagnostic_checks(&mut report, &diagnostics);
@@ -550,5 +659,45 @@ mod tests {
             .as_ref()
             .unwrap()
             .contains("open KakaoTalk"));
+    }
+
+    #[test]
+    fn cdrom_attachment_check_fails_missing_sources() {
+        let mut report = DoctorReport::default();
+        add_cdrom_attachment_check(
+            &mut report,
+            &[AttachedCdrom {
+                target: "sdb".to_string(),
+                source: Some("/missing/server.iso".to_string()),
+                source_exists: false,
+            }],
+        );
+
+        let checks = report.checks();
+        assert_eq!(checks[0].name, "vm cdrom attachments");
+        assert_eq!(checks[0].status, DoctorStatus::Fail);
+        assert!(checks[0].detail.contains("missing CD-ROM source"));
+        assert!(checks[0]
+            .next_action
+            .as_ref()
+            .unwrap()
+            .contains("detach-disk"));
+    }
+
+    #[test]
+    fn cdrom_attachment_check_warns_existing_sources() {
+        let mut report = DoctorReport::default();
+        add_cdrom_attachment_check(
+            &mut report,
+            &[AttachedCdrom {
+                target: "sdc".to_string(),
+                source: Some("/tmp/driver.iso".to_string()),
+                source_exists: true,
+            }],
+        );
+
+        let checks = report.checks();
+        assert_eq!(checks[0].status, DoctorStatus::Warn);
+        assert!(checks[0].detail.contains("persistent CD-ROM"));
     }
 }

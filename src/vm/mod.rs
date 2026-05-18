@@ -5,6 +5,7 @@ use crate::error::{VmError, WinbridgeResult};
 use base64::Engine as _;
 use serde::Deserialize;
 use serde_json::json;
+use std::path::Path;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +45,7 @@ pub struct GuestDiagnostics {
     pub themes: GuestServiceDiagnostics,
     pub kakaotalk: GuestKakaoTalkDiagnostics,
     pub disk: GuestDiskDiagnostics,
+    pub updates: GuestUpdateDiagnostics,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -74,6 +76,21 @@ pub struct GuestKakaoTalkDiagnostics {
 pub struct GuestDiskDiagnostics {
     #[serde(rename = "freeGb")]
     pub free_gb: f64,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct GuestUpdateDiagnostics {
+    #[serde(rename = "rebootPending")]
+    pub reboot_pending: bool,
+    #[serde(rename = "windowsUpdateRebootRequired")]
+    pub windows_update_reboot_required: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttachedCdrom {
+    pub target: String,
+    pub source: Option<String>,
+    pub source_exists: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -176,6 +193,11 @@ impl VmManager {
         })
     }
 
+    pub async fn attached_cdroms(&self) -> WinbridgeResult<Vec<AttachedCdrom>> {
+        let xml = self.backend.domain_xml(&self.vm_name).await?;
+        Ok(attached_cdroms_from_domain_xml(&xml))
+    }
+
     pub async fn repair_kakaotalk(&self) -> WinbridgeResult<String> {
         self.qemu_guest_ping().await?;
         let command = kakaotalk_repair_guest_exec_command();
@@ -263,6 +285,51 @@ pub fn kakaotalk_repair_guest_exec_command() -> String {
     powershell_guest_exec_command(kakaotalk_repair_powershell_command(), true)
 }
 
+fn attached_cdroms_from_domain_xml(xml: &str) -> Vec<AttachedCdrom> {
+    let mut cdroms = Vec::new();
+    for disk in xml.split("<disk ").skip(1) {
+        let Some(disk_body) = disk.split("</disk>").next() else {
+            continue;
+        };
+        let disk = format!("<disk {disk_body}");
+        if !disk.contains("device='cdrom'") && !disk.contains("device=\"cdrom\"") {
+            continue;
+        }
+
+        let target = xml_attr_value(&disk, "target", "dev").unwrap_or_else(|| "unknown".into());
+        let source = xml_attr_value(&disk, "source", "file");
+        let source_exists = source
+            .as_deref()
+            .map(|path| Path::new(path).exists())
+            .unwrap_or(false);
+        cdroms.push(AttachedCdrom {
+            target,
+            source,
+            source_exists,
+        });
+    }
+    cdroms
+}
+
+fn xml_attr_value(xml: &str, element: &str, attr: &str) -> Option<String> {
+    let marker = format!("<{element} ");
+    let element_start = xml.find(&marker)?;
+    let element_xml = &xml[element_start..xml[element_start..].find('>')? + element_start];
+    for quote in ['\'', '"'] {
+        let attr_marker = format!("{attr}={quote}");
+        let Some(attr_start) = element_xml.find(&attr_marker) else {
+            continue;
+        };
+        let attr_start = attr_start + attr_marker.len();
+        let rest = &element_xml[attr_start..];
+        let Some(attr_end) = rest.find(quote) else {
+            continue;
+        };
+        return Some(rest[..attr_end].to_string());
+    }
+    None
+}
+
 fn powershell_guest_exec_command(command: &str, capture_output: bool) -> String {
     json!({
         "execute": "guest-exec",
@@ -328,6 +395,15 @@ $themes = Get-Service -Name Themes -ErrorAction SilentlyContinue; \
 $kakao = @(Get-Process -Name KakaoTalk -ErrorAction SilentlyContinue); \
 $main = $kakao | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1; \
 $drive = Get-PSDrive -Name C -ErrorAction Stop; \
+$rebootKeys = @( \
+    'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending', \
+    'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired' \
+); \
+$rebootPending = $false; \
+foreach ($key in $rebootKeys) { if (Test-Path $key) { $rebootPending = $true } }; \
+$sessionManager = Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager' -ErrorAction SilentlyContinue; \
+if ($sessionManager -and $sessionManager.PendingFileRenameOperations) { $rebootPending = $true }; \
+$wuRebootRequired = Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired'; \
 [pscustomobject]@{ \
     wallpaper = [pscustomobject]@{ \
         path = $wallpaper; \
@@ -337,7 +413,8 @@ $drive = Get-PSDrive -Name C -ErrorAction Stop; \
     }; \
     themes = [pscustomobject]@{ status = if ($themes) { [string]$themes.Status } else { 'missing' } }; \
     kakaotalk = [pscustomobject]@{ processCount = [uint32]$kakao.Count; hasMainWindow = [bool]$main }; \
-    disk = [pscustomobject]@{ freeGb = [math]::Round($drive.Free / 1GB, 1) } \
+    disk = [pscustomobject]@{ freeGb = [math]::Round($drive.Free / 1GB, 1) }; \
+    updates = [pscustomobject]@{ rebootPending = [bool]$rebootPending; windowsUpdateRebootRequired = [bool]$wuRebootRequired } \
 } | ConvertTo-Json -Compress -Depth 5"
 }
 
@@ -637,7 +714,7 @@ mod tests {
     #[test]
     fn guest_diagnostics_json_parses() {
         let diagnostics: GuestDiagnostics = serde_json::from_str(
-            r#"{"wallpaper":{"path":"W:\\Downloads\\winbridge_desktop","sourceReachable":false,"themeCacheReachable":true,"themeCacheBytes":1696236},"themes":{"status":"Running"},"kakaotalk":{"processCount":1,"hasMainWindow":true},"disk":{"freeGb":18.5}}"#,
+            r#"{"wallpaper":{"path":"W:\\Downloads\\winbridge_desktop","sourceReachable":false,"themeCacheReachable":true,"themeCacheBytes":1696236},"themes":{"status":"Running"},"kakaotalk":{"processCount":1,"hasMainWindow":true},"disk":{"freeGb":18.5},"updates":{"rebootPending":true,"windowsUpdateRebootRequired":true}}"#,
         )
         .unwrap();
 
@@ -645,6 +722,38 @@ mod tests {
         assert!(diagnostics.wallpaper.theme_cache_reachable);
         assert!(diagnostics.kakaotalk.has_main_window);
         assert_eq!(diagnostics.themes.status, "Running");
+        assert!(diagnostics.updates.reboot_pending);
+        assert!(diagnostics.updates.windows_update_reboot_required);
+    }
+
+    #[test]
+    fn attached_cdroms_parse_domain_xml_sources() {
+        let cdroms = attached_cdroms_from_domain_xml(
+            r#"
+            <domain>
+              <devices>
+                <disk type='file' device='disk'>
+                  <source file='/tmp/disk.qcow2'/>
+                  <target dev='sda' bus='sata'/>
+                </disk>
+                <disk type='file' device='cdrom'>
+                  <source file='/missing/server.iso'/>
+                  <target dev='sdb' bus='sata'/>
+                </disk>
+                <disk type="file" device="cdrom">
+                  <target dev="sdc" bus="sata"/>
+                </disk>
+              </devices>
+            </domain>
+            "#,
+        );
+
+        assert_eq!(cdroms.len(), 2);
+        assert_eq!(cdroms[0].target, "sdb");
+        assert_eq!(cdroms[0].source, Some("/missing/server.iso".to_string()));
+        assert!(!cdroms[0].source_exists);
+        assert_eq!(cdroms[1].target, "sdc");
+        assert_eq!(cdroms[1].source, None);
     }
 
     #[test]
@@ -655,6 +764,8 @@ mod tests {
         assert!(command.contains("\"capture-output\":true"));
         assert!(command.contains("TranscodedWallpaper"));
         assert!(command.contains("KakaoTalk"));
+        assert!(command.contains("RebootRequired"));
+        assert!(command.contains("PendingFileRenameOperations"));
     }
 
     #[test]
