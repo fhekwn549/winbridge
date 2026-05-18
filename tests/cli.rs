@@ -15,7 +15,30 @@ fn winbridge_help_exits_zero_with_subcommands_listed() {
     assert!(stdout.contains("start"));
     assert!(stdout.contains("stop"));
     assert!(stdout.contains("install-desktop-entry"));
+    assert!(stdout.contains("uninstall-desktop-entry"));
     assert!(stdout.contains("status"));
+    assert!(stdout.contains("doctor"));
+    assert!(stdout.contains("diagnostic-bundle"));
+    assert!(stdout.contains("repair-kakao"));
+    assert!(stdout.contains("repair-wallpaper"));
+    assert!(stdout.contains("install-url-forwarder"));
+}
+
+#[test]
+fn winbridge_diagnostic_bundle_help_lists_output_path() {
+    let bin = env!("CARGO_BIN_EXE_winbridge");
+    let output = std::process::Command::new(bin)
+        .args(["diagnostic-bundle", "--help"])
+        .output()
+        .expect("failed to invoke winbridge");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("--output"));
 }
 
 #[test]

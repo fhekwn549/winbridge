@@ -36,6 +36,9 @@ pub enum VmError {
 
     #[error("libvirt API 오류: {0}")]
     LibvirtApi(String),
+
+    #[error("QEMU guest agent 오류: {0}")]
+    GuestAgent(String),
 }
 
 #[derive(Error, Debug)]

@@ -33,6 +33,29 @@ esac
 require_cmd virsh
 require_cmd nc "sudo apt install -y netcat-openbsd"
 
+detach_install_media() {
+    log_info "설치/드라이버 CD-ROM attachment 정리..."
+
+    local targets
+    targets=$(sudo virsh -c "$WINBRIDGE_LIBVIRT_URI" domblklist "$WINBRIDGE_VM_NAME" --details |
+        awk '$1 == "file" && $2 == "cdrom" { print $3 }')
+
+    if [ -z "$targets" ]; then
+        log_info "  CD-ROM attachment 없음"
+        return 0
+    fi
+
+    local target
+    while read -r target; do
+        [ -n "$target" ] || continue
+        if sudo virsh -c "$WINBRIDGE_LIBVIRT_URI" detach-disk "$WINBRIDGE_VM_NAME" "$target" --config >/dev/null 2>&1; then
+            log_info "  detached $target from persistent VM config"
+        else
+            log_warn "  $target detach 실패; ISO 파일을 삭제하기 전에 domblklist/dumpxml 확인 필요"
+        fi
+    done <<< "$targets"
+}
+
 start=$(date +%s)
 log_info "VM 무인 설치 대기 시작 ($WINBRIDGE_VM_NAME, timeout ${WINBRIDGE_TIMEOUT}s)"
 
@@ -79,4 +102,5 @@ fi
 
 elapsed_total=$(( $(date +%s) - start ))
 log_info "VM 설치 완료 대기 종료 (총 ${elapsed_total}s)"
+detach_install_media
 log_info "다음: 05-verify-guest.sh로 RemoteApp/단독 앱 검증"

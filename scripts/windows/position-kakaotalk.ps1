@@ -1,8 +1,9 @@
 param(
     [int]$Left = 0,
     [int]$Top = 0,
-    [int]$Width = 480,
-    [int]$Height = 680
+    [int]$Width = 960,
+    [int]$Height = 720,
+    [switch]$Restart
 )
 
 $ErrorActionPreference = 'Stop'
@@ -38,7 +39,14 @@ function Find-KakaoTalkExe {
         }
     }
 
-    foreach ($base in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+    $searchRoots = @()
+    foreach ($root in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+        if ($root) {
+            $searchRoots += Join-Path $root 'Kakao'
+        }
+    }
+
+    foreach ($base in $searchRoots) {
         if (-not $base -or -not (Test-Path $base)) {
             continue
         }
@@ -57,6 +65,25 @@ function Get-KakaoTalkMainProcess {
     Get-Process -Name 'KakaoTalk' -ErrorAction SilentlyContinue |
         Where-Object { $_.MainWindowHandle -ne 0 } |
         Select-Object -First 1
+}
+
+function Wait-KakaoTalkMainProcess {
+    param([int]$Attempts = 60)
+
+    for ($i = 0; $i -lt $Attempts; $i++) {
+        Start-Sleep -Milliseconds 250
+        $process = Get-KakaoTalkMainProcess
+        if ($process) {
+            return $process
+        }
+    }
+
+    return $null
+}
+
+function Stop-KakaoTalkProcesses {
+    Get-Process -Name 'KakaoTalk' -ErrorAction SilentlyContinue |
+        Stop-Process -Force -ErrorAction SilentlyContinue
 }
 
 function Enable-TaskbarAutoHide {
@@ -82,23 +109,17 @@ function Enable-TaskbarAutoHide {
     }
 }
 
-function Hide-Taskbar {
-    $SW_HIDE = 0
-    foreach ($className in @('Shell_TrayWnd', 'Shell_SecondaryTrayWnd')) {
-        $handle = [WinbridgeWindow]::FindWindow($className, $null)
-        if ($handle -ne [IntPtr]::Zero) {
-            [WinbridgeWindow]::ShowWindow($handle, $SW_HIDE) | Out-Null
-        }
-    }
+if ($Restart) {
+    Stop-KakaoTalkProcesses
+    Start-Sleep -Milliseconds 500
 }
 
 $process = Get-KakaoTalkMainProcess
 if (-not $process) {
-    Start-Process -FilePath (Find-KakaoTalkExe)
-
-    for ($i = 0; $i -lt 60; $i++) {
-        Start-Sleep -Milliseconds 250
-        $process = Get-KakaoTalkMainProcess
+    $kakaoExe = Find-KakaoTalkExe
+    foreach ($attempt in 1..2) {
+        Start-Process -FilePath $kakaoExe
+        $process = Wait-KakaoTalkMainProcess
         if ($process) {
             break
         }
@@ -111,7 +132,6 @@ if (-not $process -or $process.MainWindowHandle -eq 0) {
 
 $SW_RESTORE = 9
 Enable-TaskbarAutoHide
-Hide-Taskbar
 [WinbridgeWindow]::ShowWindow($process.MainWindowHandle, $SW_RESTORE) | Out-Null
 [WinbridgeWindow]::MoveWindow($process.MainWindowHandle, $Left, $Top, $Width, $Height, $true) | Out-Null
 [WinbridgeWindow]::SetForegroundWindow($process.MainWindowHandle) | Out-Null

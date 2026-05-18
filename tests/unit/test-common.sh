@@ -37,13 +37,13 @@ assert_eq "$out" "OK" "wait_for immediate"
 rc=0; ( timeout 3 bash -c 'source "'"$REPO_ROOT"'/scripts/lib/common.sh" && wait_for "test 1 = 2" 1 0.1' 2>/dev/null ) || rc=$?
 [ "$rc" -eq 0 ] && { echo "FAIL: wait_for succeeded on timeout"; exit 1; }
 
-# render_template: ${VAR} substitution
+# render_template: substitutes only WINBRIDGE_* variables and preserves other shell syntax
 TPL=$(mktemp)
 trap 'rm -f "$TPL"' EXIT
-# shellcheck disable=SC2016  # 템플릿 리터럴: envsubst가 후처리
-echo 'host=${WB_HOSTNAME} port=${WB_PORT}' > "$TPL"
-out=$(WB_HOSTNAME=foo WB_PORT=42 render_template "$TPL")
-assert_eq "$out" "host=foo port=42" "render_template substitution"
+# shellcheck disable=SC2016  # template literal processed by envsubst
+echo 'host=${WINBRIDGE_HOSTNAME} port=${WINBRIDGE_PORT} wb=${WB_HOSTNAME} ps_var=$p last_arg=$_' > "$TPL"
+out=$(WINBRIDGE_HOSTNAME=foo WINBRIDGE_PORT=42 WB_HOSTNAME=bad WB_PORT=99 render_template "$TPL")
+assert_eq "$out" 'host=foo port=42 wb=${WB_HOSTNAME} ps_var=$p last_arg=$_' "render_template WINBRIDGE allowlist"
 
 # wait_for: 잘못된 timeout 형식 거부 (return 2)
 rc=0; ( wait_for "test 1 = 1" "abc" 0.1 ) 2>/dev/null || rc=$?

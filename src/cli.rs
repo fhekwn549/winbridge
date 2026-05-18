@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "winbridge", version, about = "Linux-native KakaoTalk manager")]
+#[command(name = "winbridge", version, about = "Linux-native Windows app bridge")]
 pub struct Cli {
     #[arg(long, global = true)]
     pub verbose: bool,
@@ -31,15 +31,37 @@ pub enum Command {
         shutdown: bool,
     },
 
-    /// Install the KakaoTalk desktop launcher and icon for the current user.
+    /// Install the winbridge desktop launcher and icon for the current user.
     InstallDesktopEntry {
         /// winbridge executable path to put in the desktop launcher.
         #[arg(long)]
         exec: Option<PathBuf>,
     },
 
+    /// Remove the winbridge desktop launcher and icon for the current user.
+    UninstallDesktopEntry,
+
     /// Print the VM state.
     Status,
+
+    /// Diagnose host, VM, and RDP readiness.
+    Doctor,
+
+    /// Write a diagnostic bundle for troubleshooting.
+    DiagnosticBundle {
+        /// Output file path. Defaults to ~/.cache/winbridge/diagnostics/.
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+
+    /// Restart and foreground the Winbridge app through QEMU guest agent.
+    RepairKakao,
+
+    /// Restore Windows wallpaper from a reachable source or theme cache.
+    RepairWallpaper,
+
+    /// Install Windows http/https forwarding so guest links open on the Linux host.
+    InstallUrlForwarder,
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]

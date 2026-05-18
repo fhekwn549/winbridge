@@ -37,6 +37,52 @@ try {
     FailWith 'RDP_ENABLE' $_.Exception.Message
 }
 
+# Step 1b: QEMU Guest Agent 설치 (virtio-win ISO가 연결된 경우)
+try {
+    $virtioRoots = Get-PSDrive -PSProvider FileSystem |
+        ForEach-Object { $_.Root } |
+        Where-Object {
+            (Test-Path (Join-Path $_ 'virtio-win-guest-tools.exe')) -or
+            (Test-Path (Join-Path $_ 'guest-agent\qemu-ga-x86_64.msi')) -or
+            (Test-Path (Join-Path $_ 'vioserial'))
+        }
+
+    $virtioRoot = $virtioRoots | Select-Object -First 1
+    if ($virtioRoot) {
+        Log "[INFO] virtio-win media detected: $virtioRoot"
+
+        $vioserial = Join-Path $virtioRoot 'vioserial'
+        if (Test-Path $vioserial) {
+            Get-ChildItem -Path $vioserial -Recurse -Filter '*.inf' -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -match '\\amd64\\' } |
+                ForEach-Object {
+                    pnputil.exe /add-driver $_.FullName /install | Out-Null
+                }
+            Log "[OK] virtio serial driver install attempted"
+        }
+
+        $guestTools = Join-Path $virtioRoot 'virtio-win-guest-tools.exe'
+        if (Test-Path $guestTools) {
+            $proc = Start-Process -FilePath $guestTools -ArgumentList '/install', '/quiet', '/norestart' -Wait -PassThru
+            Log "[OK] virtio-win guest tools installer exit code $($proc.ExitCode)"
+        }
+
+        $qgaMsi = Join-Path $virtioRoot 'guest-agent\qemu-ga-x86_64.msi'
+        if (Test-Path $qgaMsi) {
+            $proc = Start-Process -FilePath 'msiexec.exe' -ArgumentList "/i `"$qgaMsi`" /qn /norestart" -Wait -PassThru
+            Log "[OK] qemu-ga MSI installer exit code $($proc.ExitCode)"
+        }
+
+        Set-Service -Name 'QEMU-GA' -StartupType Automatic -ErrorAction SilentlyContinue
+        Start-Service -Name 'QEMU-GA' -ErrorAction SilentlyContinue
+        Log "[OK] QEMU Guest Agent install/start attempted"
+    } else {
+        Log "[WARN] virtio-win media not found; QEMU Guest Agent not installed"
+    }
+} catch {
+    Log "[WARN] QEMU Guest Agent setup failed: $($_.Exception.Message)"
+}
+
 # Step 2: 카톡 PC 다운로드
 $KakaoUrl   = if ($env:KAKAOTALK_URL) { $env:KAKAOTALK_URL } else { 'https://app-pc.kakaocdn.net/talk/win32/KakaoTalk_Setup.exe' }
 $KakaoSetup = 'C:\winbridge\KakaoTalk_Setup.exe'
@@ -89,11 +135,208 @@ try {
     FailWith 'SHELL_SET' $_.Exception.Message
 }
 
-# Step 6: 카톡 자동 시작 등록 (HKCU Run, explorer가 처리)
+# Step 6: 카톡 foreground 실행/위치 보정 스크립트 설치 + 자동 시작 등록
 try {
-    Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' `
-        -Name 'KakaoTalk' -Value "`"$KakaoExe`"" -Type String
-    Log "[OK] KakaoTalk HKCU Run 등록"
+    $positionScriptPath = 'C:\winbridge\position-kakaotalk.ps1'
+    $positionScript = @'
+param(
+    [int]$Left = 0,
+    [int]$Top = 0,
+    [int]$Width = 960,
+    [int]$Height = 720,
+    [switch]$Restart
+)
+
+$ErrorActionPreference = 'Stop'
+$LogPath = 'C:\winbridge\position-kakaotalk.log'
+
+function Log {
+    param([string]$Message)
+    $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    "$ts $Message" | Out-File -FilePath $LogPath -Append -Encoding utf8
+}
+
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class WinbridgeWindow {
+    [DllImport("user32.dll")]
+    public static extern bool MoveWindow(IntPtr hWnd, int x, int y, int width, int height, bool repaint);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int command);
+
+    [DllImport("user32.dll", SetLastError=true)]
+    public static extern IntPtr FindWindow(string className, string windowName);
+}
+"@
+
+function Find-KakaoTalkExe {
+    $candidates = @(
+        "$env:ProgramFiles\Kakao\KakaoTalk\KakaoTalk.exe",
+        "${env:ProgramFiles(x86)}\Kakao\KakaoTalk\KakaoTalk.exe"
+    )
+
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path $candidate)) {
+            return $candidate
+        }
+    }
+
+    $searchRoots = @()
+    foreach ($root in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+        if ($root) {
+            $searchRoots += Join-Path $root 'Kakao'
+        }
+    }
+
+    foreach ($base in $searchRoots) {
+        if (-not (Test-Path $base)) {
+            continue
+        }
+
+        $found = Get-ChildItem -Path $base -Recurse -Filter 'KakaoTalk.exe' -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($found) {
+            return $found.FullName
+        }
+    }
+
+    throw 'KakaoTalk.exe not found.'
+}
+
+function Get-KakaoTalkMainProcess {
+    Get-Process -Name 'KakaoTalk' -ErrorAction SilentlyContinue |
+        Where-Object { $_.MainWindowHandle -ne 0 } |
+        Select-Object -First 1
+}
+
+function Wait-KakaoTalkMainProcess {
+    param([int]$Attempts = 60)
+
+    for ($i = 0; $i -lt $Attempts; $i++) {
+        Start-Sleep -Milliseconds 250
+        $process = Get-KakaoTalkMainProcess
+        if ($process) {
+            return $process
+        }
+    }
+
+    return $null
+}
+
+function Stop-KakaoTalkProcesses {
+    Get-Process -Name 'KakaoTalk' -ErrorAction SilentlyContinue |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+}
+
+function Enable-TaskbarAutoHide {
+    $advanced = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
+    if (-not (Test-Path $advanced)) {
+        New-Item -Path $advanced -Force | Out-Null
+    }
+    Set-ItemProperty -Path $advanced -Name 'HideIcons' -Value 1 -Type DWord -Force
+
+    foreach ($key in @(
+        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StuckRects3',
+        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StuckRects2'
+    )) {
+        if (-not (Test-Path $key)) {
+            continue
+        }
+
+        $settings = (Get-ItemProperty -Path $key -Name Settings -ErrorAction SilentlyContinue).Settings
+        if ($settings -and $settings.Length -gt 8) {
+            $settings[8] = $settings[8] -bor 0x01
+            Set-ItemProperty -Path $key -Name Settings -Value $settings -Force
+        }
+    }
+}
+
+try {
+    Log 'position-kakaotalk.ps1 START'
+    if ($Restart) {
+        Stop-KakaoTalkProcesses
+        Start-Sleep -Milliseconds 500
+    }
+
+    $process = Get-KakaoTalkMainProcess
+    if (-not $process) {
+        $kakaoExe = Find-KakaoTalkExe
+        foreach ($attempt in 1..2) {
+            Start-Process -FilePath $kakaoExe
+            $process = Wait-KakaoTalkMainProcess
+            if ($process) {
+                break
+            }
+        }
+    }
+
+    if (-not $process -or $process.MainWindowHandle -eq 0) {
+        throw 'KakaoTalk main window not found.'
+    }
+
+    $SW_RESTORE = 9
+    Enable-TaskbarAutoHide
+    [WinbridgeWindow]::ShowWindow($process.MainWindowHandle, $SW_RESTORE) | Out-Null
+    [WinbridgeWindow]::MoveWindow($process.MainWindowHandle, $Left, $Top, $Width, $Height, $true) | Out-Null
+    [WinbridgeWindow]::SetForegroundWindow($process.MainWindowHandle) | Out-Null
+    Log "KakaoTalk positioned at $Left,$Top ${Width}x${Height}."
+} catch {
+    Log "[FAIL] $($_.Exception.Message)"
+    exit 10
+}
+'@
+
+    Set-Content -Path $positionScriptPath -Value $positionScript -Encoding UTF8
+
+    $wallpaperScriptPath = 'C:\winbridge\repair-wallpaper.ps1'
+    $wallpaperScript = @'
+param(
+    [string]$StablePath = 'C:\winbridge\wallpaper.jpg'
+)
+
+$ErrorActionPreference = 'Stop'
+
+New-Item -Path (Split-Path -Parent $StablePath) -ItemType Directory -Force | Out-Null
+
+$desktop = Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction SilentlyContinue
+$current = if ($desktop -and $desktop.Wallpaper) { [string]$desktop.Wallpaper } else { '' }
+$themeCache = Join-Path $env:APPDATA 'Microsoft\Windows\Themes\TranscodedWallpaper'
+
+if ($current -and (Test-Path -LiteralPath $current)) {
+    Copy-Item -LiteralPath $current -Destination $StablePath -Force
+} elseif (Test-Path -LiteralPath $themeCache) {
+    Copy-Item -LiteralPath $themeCache -Destination $StablePath -Force
+} else {
+    throw 'No reachable wallpaper source or TranscodedWallpaper cache found.'
+}
+
+Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name Wallpaper -Value $StablePath
+Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name WallpaperStyle -Value '10'
+Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name TileWallpaper -Value '0'
+Start-Service -Name Themes -ErrorAction SilentlyContinue
+
+Add-Type -Namespace Winbridge -Name Wallpaper -MemberDefinition '[DllImport("user32.dll", SetLastError=true, CharSet=CharSet.Unicode)] public static extern bool SystemParametersInfo(int action, int param, string value, int flags);'
+if (-not [Winbridge.Wallpaper]::SystemParametersInfo(20, 0, $StablePath, 3)) {
+    throw 'SystemParametersInfo failed.'
+}
+
+Write-Host "Wallpaper repaired: $StablePath"
+'@
+    Set-Content -Path $wallpaperScriptPath -Value $wallpaperScript -Encoding UTF8
+
+    $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+    Remove-ItemProperty -Path $runKey -Name 'KakaoTalk' -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path $runKey `
+        -Name 'WinbridgeOpenKakaoTalk' `
+        -Value "powershell.exe -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File `"$positionScriptPath`" *> `"C:\winbridge\position-kakaotalk-run.log`"" `
+        -Type String
+    Log "[OK] KakaoTalk foreground HKCU Run 등록: $positionScriptPath"
 } catch {
     FailWith 'KAKAO_AUTOSTART' $_.Exception.Message
 }
@@ -166,7 +409,48 @@ Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
     Log "[WARN] 데스크톱/작업표시줄 숨김 일부 실패: $($_.Exception.Message)"
 }
 
-# Step 9: status SUCCESS + 재부팅 예약
+# Step 9: Ubuntu host file share shortcut
+try {
+    $sharePath = '\\192.168.122.1\winbridge'
+    $shortcutTargets = @(
+        (Join-Path $env:USERPROFILE 'Desktop\WinbridgeShare.lnk'),
+        (Join-Path $env:USERPROFILE 'Links\WinbridgeShare.lnk'),
+        (Join-Path $env:APPDATA 'Microsoft\Windows\Network Shortcuts\WinbridgeShare.lnk')
+    )
+
+    $shell = New-Object -ComObject WScript.Shell
+    foreach ($shortcutPath in $shortcutTargets) {
+        $parent = Split-Path -Parent $shortcutPath
+        if (-not (Test-Path $parent)) {
+            New-Item -Path $parent -ItemType Directory -Force | Out-Null
+        }
+
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath = $sharePath
+        $shortcut.Description = 'Ubuntu WinbridgeShare'
+        $shortcut.Save()
+    }
+    Log "[OK] WinbridgeShare 바로가기 생성: $sharePath"
+} catch {
+    Log "[WARN] WinbridgeShare 바로가기 생성 실패: $($_.Exception.Message)"
+}
+
+# Step 10: URL forwarder install
+try {
+    $urlForwarderSource = Join-Path $PSScriptRoot 'install-url-forwarder.ps1'
+    if (Test-Path $urlForwarderSource) {
+        $urlForwarderTarget = 'C:\winbridge\install-url-forwarder.ps1'
+        Copy-Item -Path $urlForwarderSource -Destination $urlForwarderTarget -Force
+        & $urlForwarderTarget | Out-File -FilePath 'C:\winbridge\install-url-forwarder-firstboot.log' -Append -Encoding utf8
+        Log "[OK] URL forwarder 설치"
+    } else {
+        Log "[WARN] install-url-forwarder.ps1 not found on OEM media"
+    }
+} catch {
+    Log "[WARN] URL forwarder 설치 실패: $($_.Exception.Message)"
+}
+
+# Step 11: status SUCCESS + 재부팅 예약
 # (SPICE guest tools 설치는 VirtIO PnP 미서명 컨펌으로 자동화 끊김 → P2B로 이관)
 'SUCCESS' | Out-File -FilePath $StatusPath -Encoding ascii -NoNewline
 Log "=== firstboot.ps1 SUCCESS, 30초 후 재부팅 ==="
