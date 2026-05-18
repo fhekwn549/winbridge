@@ -18,8 +18,7 @@ const LEGACY_KAKAOTALK_AUTOSTART_FILE_NAME: &str = "dev.winbridge.KakaoTalk.desk
 const LEGACY_KAKAOTALK_DESKTOP_FILE_NAME: &str = "dev.winbridge.KakaoTalk.desktop";
 const LEGACY_KAKAOTALK_ICON_NAME: &str = "winbridge-kakaotalk";
 
-pub(crate) const WINBRIDGE_ICON_PNG: &[u8] =
-    include_bytes!("../assets/icons/winbridge.png");
+pub(crate) const WINBRIDGE_ICON_PNG: &[u8] = include_bytes!("../assets/icons/winbridge.png");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstalledDesktopEntry {

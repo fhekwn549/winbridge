@@ -249,6 +249,11 @@ fn spawn_tray_action_loop(
             match action {
                 TrayAction::Open { mode } => {
                     idle_generation = idle_generation.wrapping_add(1);
+                    if let Some(window) = app.active_window() {
+                        window.present();
+                        continue;
+                    }
+
                     if !open_gate.try_begin() {
                         tracing::debug!("RDP open request ignored while another open is pending");
                         continue;
@@ -917,16 +922,11 @@ async fn run_start(
     )?);
     let manager = Arc::new(vm::VmManager::new(backend, cfg.vm_name.clone()));
     spawn_url_forwarder(manager.clone());
-    manager.ensure_active().await?;
-    wait_for_rdp_ready(&cfg.vm_ip, &cfg.admin_password).await?;
 
     let app = gtk4::Application::builder()
         .application_id(gtk_application_id(mode))
         .build();
     let handle = tokio::runtime::Handle::current();
-    let vm_ip = cfg.vm_ip.clone();
-    let password = cfg.admin_password.clone();
-    let close_window_policy = cfg.lifecycle.close_window;
     let quit_policy = cfg.lifecycle.quit;
     let start_policy = start_process_policy(mode);
     let _app_hold = match start_policy {
@@ -947,26 +947,11 @@ async fn run_start(
     spawn_process_signal_handler(manager, action_tx.clone());
 
     let activate_action_tx = action_tx.clone();
-    app.connect_activate(move |app| {
-        if let Some(window) = app.active_window() {
-            window.present();
-            return;
-        }
-
-        let _guard = handle.enter();
-        let on_close = rdp_window_close_handler(
-            rdp_window_close_action(close_window_policy),
-            activate_action_tx.clone(),
-        );
-        let options = rdp_window_options(mode, display);
-
-        if let Err(err) = rdp::RdpWindow::open(app, &vm_ip, &password, options, on_close) {
-            tracing::error!("RDP window open failed: {err}");
-        } else {
-            let _ = activate_action_tx.try_send(TrayAction::WindowOpened);
-        }
+    app.connect_activate(move |_| {
+        let _ = activate_action_tx.try_send(start_activation_action(mode));
     });
-    let _winbridge_app_tray_handle = if start_policy == StartProcessPolicy::HoldTrayAfterWindowClose {
+    let _winbridge_app_tray_handle = if start_policy == StartProcessPolicy::HoldTrayAfterWindowClose
+    {
         let action_tx = action_tx.clone();
         let quit_action_tx = action_tx.clone();
         Some(tray::spawn_winbridge_app_tray(tray::WinbridgeAppTray {
@@ -1050,6 +1035,10 @@ fn gtk_application_id(mode: cli::WindowMode) -> &'static str {
         cli::WindowMode::App => desktop::WINBRIDGE_APP_APPLICATION_ID,
         cli::WindowMode::Desktop => WINBRIDGE_APPLICATION_ID,
     }
+}
+
+fn start_activation_action(mode: cli::WindowMode) -> TrayAction {
+    TrayAction::Open { mode }
 }
 
 fn spawn_url_forwarder(manager: Arc<vm::VmManager>) {
@@ -1399,6 +1388,16 @@ mod tests {
         assert_eq!(
             start_process_policy(cli::WindowMode::App),
             StartProcessPolicy::HoldTrayAfterWindowClose
+        );
+    }
+
+    #[test]
+    fn app_start_activation_routes_through_open_action() {
+        assert_eq!(
+            start_activation_action(cli::WindowMode::App),
+            TrayAction::Open {
+                mode: cli::WindowMode::App,
+            }
         );
     }
 

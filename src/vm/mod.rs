@@ -903,10 +903,14 @@ mod tests {
 
         assert!(command.contains("install-url-forwarder.ps1"));
         assert!(command.contains("FromBase64String"));
-        assert!(include_str!("../../scripts/windows/install-url-forwarder.ps1")
-            .contains("Winbridge.UrlForwarder"));
-        assert!(include_str!("../../scripts/windows/install-url-forwarder.ps1")
-            .contains("open-url-on-host.ps1"));
+        assert!(
+            include_str!("../../scripts/windows/install-url-forwarder.ps1")
+                .contains("Winbridge.UrlForwarder")
+        );
+        assert!(
+            include_str!("../../scripts/windows/install-url-forwarder.ps1")
+                .contains("open-url-on-host.ps1")
+        );
     }
 
     #[test]
