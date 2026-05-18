@@ -250,7 +250,9 @@ impl VmManager {
         Ok(output.stdout.trim_matches(char::from(0)).trim().to_string())
     }
 
-    pub async fn install_url_forwarder(&self) -> WinbridgeResult<String> {
+    pub async fn install_url_forwarder(&self, icon_ico: &[u8]) -> WinbridgeResult<String> {
+        self.write_guest_file_base64_chunked("C:\\winbridge\\winbridge-kakaotalk.ico", icon_ico)
+            .await?;
         let command = install_url_forwarder_powershell_command();
         let output = self.run_powershell_capture(&command, 10, 40).await?;
         Ok(output.stdout.trim_matches(char::from(0)).trim().to_string())
@@ -310,6 +312,35 @@ impl VmManager {
         }
 
         Err(VmError::GuestAgent("PowerShell guest-exec timed out".to_string()).into())
+    }
+
+    async fn write_guest_file_base64_chunked(
+        &self,
+        path: &str,
+        bytes: &[u8],
+    ) -> WinbridgeResult<()> {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        let init = format!(
+            "$ErrorActionPreference = 'Stop'; \
+New-Item -Path (Split-Path -Parent '{path}') -ItemType Directory -Force | Out-Null; \
+if (Test-Path '{path}') {{ Remove-Item -LiteralPath '{path}' -Force }}"
+        );
+        self.run_powershell_capture(&init, 10, 10).await?;
+
+        for chunk in encoded.as_bytes().chunks(3072) {
+            let chunk = std::str::from_utf8(chunk).map_err(|err| {
+                VmError::GuestAgent(format!("failed to split base64 chunk as UTF-8: {err}"))
+            })?;
+            let append = format!(
+                "$ErrorActionPreference = 'Stop'; \
+$bytes = [Convert]::FromBase64String('{chunk}'); \
+$fs = [IO.File]::Open('{path}', [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::Read); \
+try {{ $fs.Write($bytes, 0, $bytes.Length) }} finally {{ $fs.Close() }}"
+            );
+            self.run_powershell_capture(&append, 10, 10).await?;
+        }
+
+        Ok(())
     }
 }
 

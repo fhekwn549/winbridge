@@ -1,5 +1,8 @@
 use crate::error::{WinbridgeError, WinbridgeResult};
+use image::codecs::ico::{IcoEncoder, IcoFrame};
+use image::codecs::png::PngEncoder;
 use image::ImageFormat;
+use image::{ExtendedColorType, ImageEncoder};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
@@ -209,6 +212,33 @@ pub(crate) fn installed_kakaotalk_icon_png() -> WinbridgeResult<Vec<u8>> {
     Ok(bytes.into_inner())
 }
 
+pub fn installed_kakaotalk_icon_ico() -> WinbridgeResult<Vec<u8>> {
+    let source = image::load_from_memory(KAKAOTALK_ICON_PNG)
+        .map_err(|err| WinbridgeError::Other(anyhow::anyhow!("아이콘 PNG 로드 실패: {err}")))?;
+    let mut frames = Vec::new();
+
+    for size in [16_u32, 32, 48, 64, 128, 256] {
+        let resized = source
+            .resize_exact(size, size, image::imageops::FilterType::Lanczos3)
+            .into_rgba8();
+        let mut png = Vec::new();
+        PngEncoder::new(&mut png)
+            .write_image(&resized, size, size, ExtendedColorType::Rgba8)
+            .map_err(|err| WinbridgeError::Other(anyhow::anyhow!("아이콘 PNG 변환 실패: {err}")))?;
+        frames.push(
+            IcoFrame::with_encoded(png, size, size, ExtendedColorType::Rgba8).map_err(|err| {
+                WinbridgeError::Other(anyhow::anyhow!("아이콘 ICO 프레임 생성 실패: {err}"))
+            })?,
+        );
+    }
+
+    let mut bytes = Vec::new();
+    IcoEncoder::new(&mut bytes)
+        .encode_images(&frames)
+        .map_err(|err| WinbridgeError::Other(anyhow::anyhow!("아이콘 ICO 변환 실패: {err}")))?;
+    Ok(bytes)
+}
+
 #[cfg(unix)]
 fn set_executable(path: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
@@ -321,6 +351,15 @@ mod tests {
         let icon = image::open(installed.icon_path).unwrap();
         assert_eq!(icon.width(), 256);
         assert_eq!(icon.height(), 256);
+    }
+
+    #[test]
+    fn installer_can_write_windows_ico_for_forwarder() {
+        let ico = installed_kakaotalk_icon_ico().unwrap();
+        let format = image::guess_format(&ico).unwrap();
+
+        assert_eq!(format, ImageFormat::Ico);
+        assert!(ico.len() > 1024);
     }
 
     #[test]

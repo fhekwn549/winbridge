@@ -617,7 +617,8 @@ async fn run_install_url_forwarder() -> error::WinbridgeResult<()> {
     let manager = vm::VmManager::new(Arc::new(backend), cfg.vm_name.clone());
 
     manager.ensure_active().await?;
-    let detail = manager.install_url_forwarder().await?;
+    let icon_ico = desktop::installed_kakaotalk_icon_ico()?;
+    let detail = manager.install_url_forwarder(&icon_ico).await?;
     if detail.is_empty() {
         println!("Winbridge URL forwarder installed");
     } else {

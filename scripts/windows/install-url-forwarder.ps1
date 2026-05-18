@@ -4,6 +4,7 @@ $BaseDir = 'C:\winbridge'
 $QueueDir = Join-Path $BaseDir 'url-queue'
 $ForwarderPath = Join-Path $BaseDir 'open-url-on-host.ps1'
 $ForwarderExePath = Join-Path $BaseDir 'WinbridgeUrlForwarder.exe'
+$ForwarderIconPath = Join-Path $BaseDir 'winbridge-kakaotalk.ico'
 $LogPath = Join-Path $BaseDir 'url-forwarder.log'
 
 New-Item -Path $BaseDir -ItemType Directory -Force | Out-Null
@@ -164,7 +165,8 @@ foreach ($Root in @('HKCU', 'HKLM')) {
     Set-RegistryDefaultValue -Path "$ClientKey\shell\properties\command" -Value $Command
     Set-RegistryStringValue -Path $CapabilitiesKey -Name 'ApplicationName' -Value 'Winbridge URL Forwarder'
     Set-RegistryStringValue -Path $CapabilitiesKey -Name 'ApplicationDescription' -Value 'Open Windows VM links on the Linux host through winbridge.'
-    Set-RegistryStringValue -Path $CapabilitiesKey -Name 'ApplicationIcon' -Value "$ForwarderExePath,0"
+    $ApplicationIcon = if (Test-Path $ForwarderIconPath) { $ForwarderIconPath } else { "$ForwarderExePath,0" }
+    Set-RegistryStringValue -Path $CapabilitiesKey -Name 'ApplicationIcon' -Value $ApplicationIcon
     Set-RegistryStringValue -Path "$CapabilitiesKey\StartMenu" -Name 'StartMenuInternet' -Value 'WinbridgeUrlForwarder'
     Set-RegistryStringValue -Path "$CapabilitiesKey\URLAssociations" -Name 'http' -Value $ProgId
     Set-RegistryStringValue -Path "$CapabilitiesKey\URLAssociations" -Name 'https' -Value $ProgId
