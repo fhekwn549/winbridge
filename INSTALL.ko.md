@@ -150,6 +150,7 @@ export WINBRIDGE_ISO_SHA256="$(sha256sum "$WINBRIDGE_ISO_DEST" | awk '{print $1}
 - libvirt 네트워크와 저장소 설정
 - Windows VM 생성 및 무인 설치
 - KakaoTalk 설치와 자동 시작 등록
+- `http`/`https` 링크용 Windows 기본앱 후보로 Winbridge URL Forwarder 등록
 - Windows 작업표시줄 자동 숨김 설정
 - RDP 접속 검증
 
@@ -169,7 +170,19 @@ cargo build --release
 
 GNOME 앱 목록이나 Dock에서 KakaoTalk 아이콘이 보이지 않으면 한 번 로그아웃 후 다시 로그인하세요.
 
-## 9. 실행
+## 9. 게스트 링크를 호스트 브라우저에서 열기
+
+새 VM 설치는 Windows 안에 `Winbridge URL Forwarder`를 이미 등록합니다. 기존 VM이거나 winbridge 업데이트 뒤 갱신하려면 아래 명령을 실행합니다.
+
+```bash
+./target/release/winbridge install-url-forwarder
+```
+
+그 다음 Windows VM 안에서 Settings -> Apps -> Default apps를 열고 `http`와 `https`를 각각 `Winbridge URL Forwarder`로 선택합니다.
+
+Windows는 최종 기본앱 선택을 `UserChoice` hash로 보호합니다. winbridge는 앱 후보 등록까지 자동 처리하지만, `http`/`https` 최종 선택은 수동으로 한 번 해야 합니다. 재부팅 뒤 Edge로 돌아가면 같은 선택을 한 번 다시 적용하세요.
+
+## 10. 실행
 
 트레이 매니저를 실행합니다.
 
@@ -191,7 +204,7 @@ Windows 전체 화면 설정이 필요하면 desktop 모드를 사용합니다.
 ./target/release/winbridge start --mode desktop
 ```
 
-## 10. 종료와 재실행
+## 11. 종료와 재실행
 
 KakaoTalk RDP 창만 닫아도 VM은 백그라운드에서 계속 실행됩니다.
 
@@ -246,13 +259,13 @@ pkill -f 'target/release/winbridge'
 ./target/release/winbridge
 ```
 
-## 11. 작업표시줄이 다시 보일 때
+## 12. 작업표시줄이 다시 보일 때
 
 새 VM 설치 과정에서는 Windows 작업표시줄 자동 숨김이 자동 적용됩니다.
 
 이미 설치된 VM에서 작업표시줄이 계속 보이면 Windows PowerShell에서 `scripts/windows/position-kakaotalk.ps1` 내용을 한 번 실행하세요.
 
-## 12. 제거
+## 13. 제거
 
 확인 질문을 보면서 제거:
 

@@ -37,6 +37,7 @@ P2A uses a VM-based fallback instead of RemoteApp. RemoteApp-style single-window
 
 - The Windows guest keeps `explorer.exe` as its shell.
 - `firstboot.ps1` installs KakaoTalk, disables Server Manager at logon, hides desktop icons, and enables taskbar auto-hide.
+- `firstboot.ps1` registers Winbridge URL Forwarder as a Windows default-app candidate for `http` and `https` links.
 - KakaoTalk starts from `HKCU\Run` on Windows logon.
 - The Linux host runs `winbridge`, a Rust manager with a tray entry, desktop launcher, embedded RDP viewer, keyboard input, text clipboard bridge, VM diagnostics, and repair commands.
 - QEMU guest agent commands run in a Windows service session. GUI repair commands trigger an interactive Scheduled Task so KakaoTalk window positioning happens in the logged-in RDP user session.
@@ -80,6 +81,16 @@ idle-timeout-minutes = 30         # omit to disable
 ```
 
 `cargo run -- status` prints the VM state and lifecycle summary.
+
+### Guest Links
+
+winbridge can open links clicked inside Windows KakaoTalk on the Linux host browser. New VM installs register `Winbridge URL Forwarder` automatically as a Windows default-app candidate. Existing VMs can install or refresh it with:
+
+```bash
+cargo run -- install-url-forwarder
+```
+
+Windows protects the final `http`/`https` default-app choice with a `UserChoice` hash, so winbridge cannot safely force that selection. In the Windows VM, choose `Winbridge URL Forwarder` once for both `http` and `https` in Settings -> Apps -> Default apps. If Windows falls back to Edge after a reboot, repeat that manual selection once.
 
 ## Architecture
 

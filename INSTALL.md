@@ -150,6 +150,7 @@ The installer automatically performs these steps:
 - Configures libvirt networking and storage
 - Creates the Windows VM and runs unattended setup
 - Installs KakaoTalk and registers it for automatic startup
+- Registers Winbridge URL Forwarder as a Windows default-app candidate for `http` and `https`
 - Enables Windows taskbar auto-hide
 - Verifies RDP access
 
@@ -169,7 +170,19 @@ cargo build --release
 
 If the KakaoTalk icon does not appear in the GNOME app list or Dock, log out and log back in once.
 
-## 9. Run
+## 9. Open Guest Links on the Host Browser
+
+New VM installs already register `Winbridge URL Forwarder` inside Windows. For an existing VM or after updating winbridge, refresh it with:
+
+```bash
+./target/release/winbridge install-url-forwarder
+```
+
+Then, inside the Windows VM, open Settings -> Apps -> Default apps and choose `Winbridge URL Forwarder` for both `http` and `https`.
+
+Windows protects this final default-app choice with a `UserChoice` hash. winbridge registers the app candidate automatically, but the final `http`/`https` selection must be done manually once. If Windows falls back to Edge after a reboot, repeat the same selection.
+
+## 10. Run
 
 Start the tray manager.
 
@@ -191,7 +204,7 @@ Use desktop mode when you need the full Windows desktop.
 ./target/release/winbridge start --mode desktop
 ```
 
-## 10. Stop and Restart
+## 11. Stop and Restart
 
 Closing only the KakaoTalk RDP window keeps the VM running in the background.
 
@@ -246,13 +259,13 @@ pkill -f 'target/release/winbridge'
 ./target/release/winbridge
 ```
 
-## 11. If the Windows Taskbar Reappears
+## 12. If the Windows Taskbar Reappears
 
 New VM installations apply Windows taskbar auto-hide automatically.
 
 If the taskbar keeps showing in an existing VM, run the contents of `scripts/windows/position-kakaotalk.ps1` once in Windows PowerShell.
 
-## 12. Uninstall
+## 13. Uninstall
 
 Uninstall with confirmation prompts:
 
