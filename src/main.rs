@@ -1,7 +1,9 @@
 use clap::Parser;
 use gtk4::prelude::*;
+use std::fmt::Write as _;
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use winbridge::{cli, config, desktop, doctor, error, rdp, tray, vm};
 
 const RDP_PORT: u16 = 3389;
@@ -148,6 +150,19 @@ fn repair_notification_body(action: &str, result: Result<&str, &str>) -> String 
     }
 }
 
+fn action_notification_body(action: &str, result: Result<&str, &str>) -> String {
+    match result {
+        Ok(detail) if detail.trim().is_empty() => {
+            format!("{action} completed. Next: run status or doctor if needed.")
+        }
+        Ok(detail) => format!(
+            "{action} completed: {}. Next: run status or doctor if needed.",
+            detail.trim()
+        ),
+        Err(err) => format!("{action} failed: {err}. Next: run doctor or open Windows desktop."),
+    }
+}
+
 fn send_desktop_notification(app: &gtk4::Application, title: &str, body: &str) {
     let notification = gtk4::gio::Notification::new(title);
     notification.set_body(Some(body));
@@ -245,12 +260,26 @@ fn spawn_tray_action_loop(
                     handle.spawn(async move {
                         if let Err(err) = manager.ensure_active().await {
                             tracing::error!("VM wake failed: {err}");
+                            let _ = action_tx.try_send(TrayAction::Notify {
+                                title: "Open KakaoTalk failed".to_string(),
+                                body: action_notification_body(
+                                    "Open KakaoTalk",
+                                    Err(&err.to_string()),
+                                ),
+                            });
                             let _ = action_tx.try_send(TrayAction::OpenFinished);
                             return;
                         }
                         if let Err(err) = wait_for_rdp_ready(&cfg.vm_ip, &cfg.admin_password).await
                         {
                             tracing::error!("RDP readiness wait failed: {err}");
+                            let _ = action_tx.try_send(TrayAction::Notify {
+                                title: "Open KakaoTalk failed".to_string(),
+                                body: action_notification_body(
+                                    "Open KakaoTalk",
+                                    Err(&err.to_string()),
+                                ),
+                            });
                             let _ = action_tx.try_send(TrayAction::OpenFinished);
                             return;
                         }
@@ -285,6 +314,10 @@ fn spawn_tray_action_loop(
                         rdp::RdpWindow::open(&app, &vm_ip, &password, options, on_close)
                     {
                         tracing::error!("RDP window open failed: {err}");
+                        let _ = action_tx.try_send(TrayAction::Notify {
+                            title: "Open KakaoTalk failed".to_string(),
+                            body: action_notification_body("Open KakaoTalk", Err(&err.to_string())),
+                        });
                     } else {
                         let _ = action_tx.try_send(TrayAction::WindowOpened);
                     }
@@ -399,7 +432,12 @@ fn spawn_tray_action_loop(
                             tracing::error!("VM managed save failed: {err}");
                             let _ = action_tx.try_send(TrayAction::Notify {
                                 title: "VM pause failed".to_string(),
-                                body: repair_notification_body("VM pause", Err(&err.to_string())),
+                                body: action_notification_body("VM pause", Err(&err.to_string())),
+                            });
+                        } else {
+                            let _ = action_tx.try_send(TrayAction::Notify {
+                                title: "VM pause completed".to_string(),
+                                body: action_notification_body("VM pause", Ok("managed-save done")),
                             });
                         }
                     });
@@ -412,10 +450,15 @@ fn spawn_tray_action_loop(
                             tracing::error!("VM shutdown failed: {err}");
                             let _ = action_tx.try_send(TrayAction::Notify {
                                 title: "VM shutdown failed".to_string(),
-                                body: repair_notification_body(
+                                body: action_notification_body(
                                     "VM shutdown",
                                     Err(&err.to_string()),
                                 ),
+                            });
+                        } else {
+                            let _ = action_tx.try_send(TrayAction::Notify {
+                                title: "VM shutdown completed".to_string(),
+                                body: action_notification_body("VM shutdown", Ok("guest stopped")),
                             });
                         }
                     });
@@ -466,6 +509,12 @@ fn main() {
                     std::process::exit(1);
                 }
             }
+            Some(cli::Command::DiagnosticBundle { output }) => {
+                if let Err(err) = run_diagnostic_bundle(output).await {
+                    eprintln!("diagnostic-bundle 실패: {err}");
+                    std::process::exit(1);
+                }
+            }
             Some(cli::Command::RepairKakao) => {
                 if let Err(err) = run_repair_kakao().await {
                     eprintln!("repair-kakao 실패: {err}");
@@ -502,12 +551,14 @@ fn main() {
 
 async fn run_status() -> error::WinbridgeResult<()> {
     let cfg = config::WinbridgeConfig::load()?;
-    let backend = vm::libvirt_backend::LibvirtBackendImpl::open(&cfg.libvirt_uri)?;
-    let manager = vm::VmManager::new(Arc::new(backend), cfg.vm_name.clone());
+    let manager = vm_manager_from_config(&cfg)?;
     let state = manager.state().await?;
 
     println!("VM '{}' 상태: {:?}", cfg.vm_name, state);
     println!("lifecycle: {}", lifecycle_summary(cfg.lifecycle));
+    println!("rdp: {}", rdp_tcp_status(&cfg.vm_ip).await);
+    println!("qemu-ga: {}", qemu_ga_status(&manager, state).await);
+    println!("cdrom: {}", cdrom_status(&manager).await);
     Ok(())
 }
 
@@ -544,6 +595,113 @@ async fn run_repair_wallpaper() -> error::WinbridgeResult<()> {
     } else {
         println!("{detail}");
     }
+    Ok(())
+}
+
+fn vm_manager_from_config(cfg: &config::WinbridgeConfig) -> error::WinbridgeResult<vm::VmManager> {
+    let backend = vm::libvirt_backend::LibvirtBackendImpl::open(&cfg.libvirt_uri)?;
+    Ok(vm::VmManager::new(Arc::new(backend), cfg.vm_name.clone()))
+}
+
+async fn rdp_tcp_status(vm_ip: &str) -> String {
+    match check_tcp_once(vm_ip, RDP_PORT, Duration::from_secs(1)).await {
+        Ok(()) => format!("{vm_ip}:{RDP_PORT} reachable"),
+        Err(err) => format!("{vm_ip}:{RDP_PORT} unreachable ({err})"),
+    }
+}
+
+async fn qemu_ga_status(manager: &vm::VmManager, state: vm::VmState) -> String {
+    if !state.is_active() {
+        return "skipped (VM not active)".to_string();
+    }
+    match manager.qemu_guest_ping().await {
+        Ok(()) => "guest-ping ok".to_string(),
+        Err(err) => format!("guest-ping failed ({err})"),
+    }
+}
+
+async fn cdrom_status(manager: &vm::VmManager) -> String {
+    match manager.attached_cdroms().await {
+        Ok(cdroms) if cdroms.is_empty() => "no persistent attachments".to_string(),
+        Ok(cdroms) => format!("{} persistent attachment(s)", cdroms.len()),
+        Err(err) => format!("inspect failed ({err})"),
+    }
+}
+
+async fn check_tcp_once(host: &str, port: u16, timeout: Duration) -> Result<(), String> {
+    let address = format!("{host}:{port}");
+    match tokio::time::timeout(timeout, tokio::net::TcpStream::connect(&address)).await {
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(err)) => Err(err.to_string()),
+        Err(_) => Err(format!("timeout after {}s", timeout.as_secs())),
+    }
+}
+
+async fn diagnostic_bundle_text() -> String {
+    let mut out = String::new();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    let _ = writeln!(out, "winbridge diagnostic bundle");
+    let _ = writeln!(out, "generated-unix-seconds: {now}");
+    let _ = writeln!(out);
+
+    match config::WinbridgeConfig::load() {
+        Ok(cfg) => {
+            let _ = writeln!(out, "[status]");
+            match vm_manager_from_config(&cfg) {
+                Ok(manager) => match manager.state().await {
+                    Ok(state) => {
+                        let _ = writeln!(out, "vm: {} {:?}", cfg.vm_name, state);
+                        let _ = writeln!(out, "lifecycle: {}", lifecycle_summary(cfg.lifecycle));
+                        let _ = writeln!(out, "rdp: {}", rdp_tcp_status(&cfg.vm_ip).await);
+                        let _ = writeln!(out, "qemu-ga: {}", qemu_ga_status(&manager, state).await);
+                        let _ = writeln!(out, "cdrom: {}", cdrom_status(&manager).await);
+                    }
+                    Err(err) => {
+                        let _ = writeln!(out, "vm state error: {err}");
+                    }
+                },
+                Err(err) => {
+                    let _ = writeln!(out, "manager error: {err}");
+                }
+            }
+        }
+        Err(err) => {
+            let _ = writeln!(out, "[status]");
+            let _ = writeln!(out, "config error: {err}");
+        }
+    }
+
+    let _ = writeln!(out);
+    let _ = writeln!(out, "[doctor]");
+    let report = doctor::diagnose_host().await;
+    out.push_str(&doctor::format_report(&report));
+    out
+}
+
+fn default_diagnostic_bundle_path() -> error::WinbridgeResult<PathBuf> {
+    let dirs = directories::BaseDirs::new().expect("BaseDirs::new must succeed on supported OS");
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    Ok(dirs
+        .cache_dir()
+        .join("winbridge")
+        .join("diagnostics")
+        .join(format!("winbridge-diagnostics-{timestamp}.txt")))
+}
+
+async fn run_diagnostic_bundle(output: Option<PathBuf>) -> error::WinbridgeResult<()> {
+    let path = output.unwrap_or(default_diagnostic_bundle_path()?);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let text = diagnostic_bundle_text().await;
+    std::fs::write(&path, text)?;
+    println!("Diagnostic bundle written: {}", path.display());
     Ok(())
 }
 
@@ -1126,6 +1284,15 @@ mod tests {
         let body = repair_notification_body("KakaoTalk repair", Err("boom"));
 
         assert!(body.contains("KakaoTalk repair failed"));
+        assert!(body.contains("run doctor"));
+        assert!(body.contains("open Windows desktop"));
+    }
+
+    #[test]
+    fn tray_action_notification_body_includes_next_action() {
+        let body = action_notification_body("Open KakaoTalk", Err("boom"));
+
+        assert!(body.contains("Open KakaoTalk failed"));
         assert!(body.contains("run doctor"));
         assert!(body.contains("open Windows desktop"));
     }

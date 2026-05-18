@@ -44,6 +44,13 @@ pub enum Command {
     /// Diagnose host, VM, and RDP readiness.
     Doctor,
 
+    /// Write a diagnostic bundle for troubleshooting.
+    DiagnosticBundle {
+        /// Output file path. Defaults to ~/.cache/winbridge/diagnostics/.
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+
     /// Restart and foreground KakaoTalk through QEMU guest agent.
     RepairKakao,
 
