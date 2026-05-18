@@ -54,6 +54,16 @@ scripts/host/08-install-linux-app.sh
 
 The launcher runs `winbridge start --mode app`, so clicking the winbridge icon can start or resume the VM before opening KakaoTalk.
 
+### Debian Package
+
+Build a local `.deb` package:
+
+```bash
+scripts/release/build-deb.sh
+```
+
+The package is written to `dist/winbridge_<version>_amd64.deb` and installs the binary, desktop launchers, and icon under `/usr`. Build release packages on Ubuntu 22.04 when targeting both Ubuntu 22.04 and newer systems, because that keeps the runtime libc baseline compatible.
+
 Existing VMs can retrofit QEMU guest agent support:
 
 ```bash
