@@ -31,6 +31,10 @@ enum TrayAction {
     Pause,
     Shutdown,
     ManagedSaveThenQuit,
+    Notify {
+        title: String,
+        body: String,
+    },
     Quit,
 }
 
@@ -103,6 +107,51 @@ fn lifecycle_idle_timeout(lifecycle: config::LifecycleConfig) -> Option<Duration
         .idle_timeout_minutes
         .map(|minutes| Duration::from_secs(minutes.saturating_mul(60)))
         .filter(|duration| !duration.is_zero())
+}
+
+fn close_window_policy_label(policy: config::CloseWindowPolicy) -> &'static str {
+    match policy {
+        config::CloseWindowPolicy::KeepRunning => "keep-running",
+        config::CloseWindowPolicy::ManagedSave => "managed-save",
+    }
+}
+
+fn quit_policy_label(policy: config::QuitPolicy) -> &'static str {
+    match policy {
+        config::QuitPolicy::ManagedSave => "managed-save",
+        config::QuitPolicy::KeepRunning => "keep-running",
+    }
+}
+
+fn lifecycle_summary(lifecycle: config::LifecycleConfig) -> String {
+    let idle = lifecycle
+        .idle_timeout_minutes
+        .map(|minutes| format!("{minutes}m"))
+        .unwrap_or_else(|| "disabled".to_string());
+    format!(
+        "close-window={}, quit={}, idle-timeout={idle}",
+        close_window_policy_label(lifecycle.close_window),
+        quit_policy_label(lifecycle.quit)
+    )
+}
+
+fn repair_notification_body(action: &str, result: Result<&str, &str>) -> String {
+    match result {
+        Ok(detail) if detail.trim().is_empty() => {
+            format!("{action} completed. Next: open KakaoTalk or run doctor if the issue remains.")
+        }
+        Ok(detail) => format!(
+            "{action} completed: {}. Next: open KakaoTalk or run doctor if the issue remains.",
+            detail.trim()
+        ),
+        Err(err) => format!("{action} failed: {err}. Next: run doctor or open Windows desktop."),
+    }
+}
+
+fn send_desktop_notification(app: &gtk4::Application, title: &str, body: &str) {
+    let notification = gtk4::gio::Notification::new(title);
+    notification.set_body(Some(body));
+    app.send_notification(None, &notification);
 }
 
 fn rdp_window_close_handler(
@@ -272,44 +321,102 @@ fn spawn_tray_action_loop(
                 }
                 TrayAction::RepairKakao => {
                     let manager = manager.clone();
+                    let action_tx = action_tx.clone();
                     handle.spawn(async move {
                         if let Err(err) = manager.ensure_active().await {
                             tracing::error!("VM wake before KakaoTalk repair failed: {err}");
+                            let _ = action_tx.try_send(TrayAction::Notify {
+                                title: "KakaoTalk repair failed".to_string(),
+                                body: repair_notification_body(
+                                    "KakaoTalk repair",
+                                    Err(&err.to_string()),
+                                ),
+                            });
                             return;
                         }
-                        if let Err(err) = manager.repair_kakaotalk().await {
-                            tracing::error!("KakaoTalk repair failed: {err}");
-                        } else {
-                            tracing::info!("KakaoTalk repair requested");
+                        match manager.repair_kakaotalk().await {
+                            Ok(detail) => {
+                                tracing::info!("KakaoTalk repair requested: {detail}");
+                                let _ = action_tx.try_send(TrayAction::Notify {
+                                    title: "KakaoTalk repair requested".to_string(),
+                                    body: repair_notification_body("KakaoTalk repair", Ok(&detail)),
+                                });
+                            }
+                            Err(err) => {
+                                tracing::error!("KakaoTalk repair failed: {err}");
+                                let _ = action_tx.try_send(TrayAction::Notify {
+                                    title: "KakaoTalk repair failed".to_string(),
+                                    body: repair_notification_body(
+                                        "KakaoTalk repair",
+                                        Err(&err.to_string()),
+                                    ),
+                                });
+                            }
                         }
                     });
                 }
                 TrayAction::RepairWallpaper => {
                     let manager = manager.clone();
+                    let action_tx = action_tx.clone();
                     handle.spawn(async move {
                         if let Err(err) = manager.ensure_active().await {
                             tracing::error!("VM wake before wallpaper repair failed: {err}");
+                            let _ = action_tx.try_send(TrayAction::Notify {
+                                title: "Wallpaper repair failed".to_string(),
+                                body: repair_notification_body(
+                                    "Wallpaper repair",
+                                    Err(&err.to_string()),
+                                ),
+                            });
                             return;
                         }
                         match manager.repair_wallpaper().await {
-                            Ok(detail) => tracing::info!("Wallpaper repair requested: {detail}"),
-                            Err(err) => tracing::error!("Wallpaper repair failed: {err}"),
+                            Ok(detail) => {
+                                tracing::info!("Wallpaper repair requested: {detail}");
+                                let _ = action_tx.try_send(TrayAction::Notify {
+                                    title: "Wallpaper repair completed".to_string(),
+                                    body: repair_notification_body("Wallpaper repair", Ok(&detail)),
+                                });
+                            }
+                            Err(err) => {
+                                tracing::error!("Wallpaper repair failed: {err}");
+                                let _ = action_tx.try_send(TrayAction::Notify {
+                                    title: "Wallpaper repair failed".to_string(),
+                                    body: repair_notification_body(
+                                        "Wallpaper repair",
+                                        Err(&err.to_string()),
+                                    ),
+                                });
+                            }
                         }
                     });
                 }
                 TrayAction::Pause => {
                     let manager = manager.clone();
+                    let action_tx = action_tx.clone();
                     handle.spawn(async move {
                         if let Err(err) = manager.managed_save().await {
                             tracing::error!("VM managed save failed: {err}");
+                            let _ = action_tx.try_send(TrayAction::Notify {
+                                title: "VM pause failed".to_string(),
+                                body: repair_notification_body("VM pause", Err(&err.to_string())),
+                            });
                         }
                     });
                 }
                 TrayAction::Shutdown => {
                     let manager = manager.clone();
+                    let action_tx = action_tx.clone();
                     handle.spawn(async move {
                         if let Err(err) = manager.graceful_shutdown(60).await {
                             tracing::error!("VM shutdown failed: {err}");
+                            let _ = action_tx.try_send(TrayAction::Notify {
+                                title: "VM shutdown failed".to_string(),
+                                body: repair_notification_body(
+                                    "VM shutdown",
+                                    Err(&err.to_string()),
+                                ),
+                            });
                         }
                     });
                 }
@@ -319,6 +426,9 @@ fn spawn_tray_action_loop(
                     handle.spawn(async move {
                         handle_managed_save_then_quit(manager, action_tx, "after tray quit").await;
                     });
+                }
+                TrayAction::Notify { title, body } => {
+                    send_desktop_notification(&app, &title, &body);
                 }
                 TrayAction::Quit => app.quit(),
             }
@@ -397,6 +507,7 @@ async fn run_status() -> error::WinbridgeResult<()> {
     let state = manager.state().await?;
 
     println!("VM '{}' 상태: {:?}", cfg.vm_name, state);
+    println!("lifecycle: {}", lifecycle_summary(cfg.lifecycle));
     Ok(())
 }
 
@@ -412,8 +523,12 @@ async fn run_repair_kakao() -> error::WinbridgeResult<()> {
     let manager = vm::VmManager::new(Arc::new(backend), cfg.vm_name.clone());
 
     manager.ensure_active().await?;
-    manager.repair_kakaotalk().await?;
-    println!("KakaoTalk repair requested through QEMU guest agent");
+    let detail = manager.repair_kakaotalk().await?;
+    if detail.is_empty() {
+        println!("KakaoTalk repair requested through QEMU guest agent");
+    } else {
+        println!("{detail}");
+    }
     Ok(())
 }
 
@@ -978,6 +1093,37 @@ mod tests {
             lifecycle_idle_timeout(lifecycle),
             Some(Duration::from_secs(1800))
         );
+    }
+
+    #[test]
+    fn status_lifecycle_summary_explains_defaults() {
+        assert_eq!(
+            lifecycle_summary(config::LifecycleConfig::default()),
+            "close-window=keep-running, quit=managed-save, idle-timeout=disabled"
+        );
+    }
+
+    #[test]
+    fn status_lifecycle_summary_explains_configured_timeout() {
+        let lifecycle = config::LifecycleConfig {
+            close_window: config::CloseWindowPolicy::ManagedSave,
+            quit: config::QuitPolicy::KeepRunning,
+            idle_timeout_minutes: Some(20),
+        };
+
+        assert_eq!(
+            lifecycle_summary(lifecycle),
+            "close-window=managed-save, quit=keep-running, idle-timeout=20m"
+        );
+    }
+
+    #[test]
+    fn tray_repair_notification_body_includes_next_action() {
+        let body = repair_notification_body("KakaoTalk repair", Err("boom"));
+
+        assert!(body.contains("KakaoTalk repair failed"));
+        assert!(body.contains("run doctor"));
+        assert!(body.contains("open Windows desktop"));
     }
 
     #[test]

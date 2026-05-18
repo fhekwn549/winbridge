@@ -207,6 +207,38 @@ Check VM status:
 ./target/release/winbridge status
 ```
 
+Run diagnostics:
+
+```bash
+./target/release/winbridge doctor
+```
+
+Repair KakaoTalk window placement or wallpaper state:
+
+```bash
+./target/release/winbridge repair-kakao
+./target/release/winbridge repair-wallpaper
+```
+
+`doctor` entries named `guest service-session ...` come from the qemu-ga Windows service session. If the visible RDP window is healthy, those warnings alone do not require repair.
+
+Retrofit qemu-ga on an existing VM:
+
+```bash
+scripts/host/07-enable-qemu-ga.sh
+```
+
+Then install `virtio-win-guest-tools.exe` or `guest-agent\qemu-ga-x86_64.msi` inside Windows and restart the VM.
+
+Lifecycle config example:
+
+```toml
+[lifecycle]
+close-window = "keep-running"
+quit = "managed-save"
+idle-timeout-minutes = 30
+```
+
 Restart the tray process:
 
 ```bash

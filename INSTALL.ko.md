@@ -207,6 +207,38 @@ VM 상태 확인:
 ./target/release/winbridge status
 ```
 
+진단:
+
+```bash
+./target/release/winbridge doctor
+```
+
+KakaoTalk 창이나 배경화면이 깨졌을 때:
+
+```bash
+./target/release/winbridge repair-kakao
+./target/release/winbridge repair-wallpaper
+```
+
+`doctor`의 `guest service-session ...` 항목은 qemu-ga 서비스 세션에서 본 값입니다. 보이는 RDP 창이 정상이라면 해당 경고만으로 복구할 필요는 없습니다.
+
+기존 VM에 qemu-ga를 추가하려면:
+
+```bash
+scripts/host/07-enable-qemu-ga.sh
+```
+
+그 다음 Windows 안에서 `virtio-win-guest-tools.exe` 또는 `guest-agent\qemu-ga-x86_64.msi`를 설치하고 VM을 재시작하세요.
+
+lifecycle 설정 예시:
+
+```toml
+[lifecycle]
+close-window = "keep-running"
+quit = "managed-save"
+idle-timeout-minutes = 30
+```
+
 트레이 프로세스를 다시 시작하려면:
 
 ```bash

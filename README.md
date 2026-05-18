@@ -38,11 +38,48 @@ P2A uses a VM-based fallback instead of RemoteApp. RemoteApp-style single-window
 - The Windows guest keeps `explorer.exe` as its shell.
 - `firstboot.ps1` installs KakaoTalk, disables Server Manager at logon, hides desktop icons, and enables taskbar auto-hide.
 - KakaoTalk starts from `HKCU\Run` on Windows logon.
-- The Linux host runs `winbridge`, a Rust manager with a tray entry, desktop launcher, embedded RDP viewer, keyboard input, and text clipboard bridge.
+- The Linux host runs `winbridge`, a Rust manager with a tray entry, desktop launcher, embedded RDP viewer, keyboard input, text clipboard bridge, VM diagnostics, and repair commands.
+- QEMU guest agent commands run in a Windows service session. GUI repair commands trigger an interactive Scheduled Task so KakaoTalk window positioning happens in the logged-in RDP user session.
 
 ## Installation
 
 For terminal-first installation and daily-use commands, see [INSTALL.md](INSTALL.md).
+
+Existing VMs can retrofit QEMU guest agent support:
+
+```bash
+scripts/host/07-enable-qemu-ga.sh
+```
+
+After attaching the channel/ISO, install `virtio-win-guest-tools.exe` or `guest-agent\qemu-ga-x86_64.msi` inside Windows and restart the VM.
+
+## Operate
+
+Check host, VM, RDP, qemu-ga, and guest-side health:
+
+```bash
+cargo run -- doctor
+```
+
+Repair guest-side state:
+
+```bash
+cargo run -- repair-kakao
+cargo run -- repair-wallpaper
+```
+
+`doctor` labels guest checks as `guest service-session ...` when data comes from qemu-ga. Treat these checks as service-session diagnostics, not proof that the visible RDP user session is broken. If the visible KakaoTalk window works from the tray, no repair is needed.
+
+Lifecycle defaults keep the VM running when the KakaoTalk window closes, managed-save on tray quit, and leave idle timeout disabled. Override them in `~/.config/winbridge/config.toml`:
+
+```toml
+[lifecycle]
+close-window = "keep-running"     # or "managed-save"
+quit = "managed-save"             # or "keep-running"
+idle-timeout-minutes = 30         # omit to disable
+```
+
+`cargo run -- status` prints the VM state and lifecycle summary.
 
 ## Architecture
 
@@ -74,9 +111,9 @@ Design constraints:
 ## Known Limits
 
 - KakaoTalk only.
-- No automatic idle suspend policy.
+- Automatic idle suspend is available through optional config but disabled by default.
 - No Windows evaluation expiration management.
-- No D-Bus notification bridge, badge bridge, or global hotkey support yet.
+- Tray action result notifications are local host notifications; no KakaoTalk message notification bridge, badge bridge, or global hotkey support yet.
 - No host shared KakaoTalk data storage yet.
 
 ## Roadmap

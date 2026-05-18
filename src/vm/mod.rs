@@ -176,7 +176,7 @@ impl VmManager {
         })
     }
 
-    pub async fn repair_kakaotalk(&self) -> WinbridgeResult<()> {
+    pub async fn repair_kakaotalk(&self) -> WinbridgeResult<String> {
         self.qemu_guest_ping().await?;
         let command = kakaotalk_repair_guest_exec_command();
         let response = self
@@ -197,11 +197,11 @@ impl VmManager {
                 .await?;
             if let Some(status) = guest_exec_status(&response)? {
                 if status.exitcode == 0 {
-                    return Ok(());
+                    return Ok(status.stdout.trim_matches(char::from(0)).trim().to_string());
                 }
                 return Err(VmError::GuestAgent(format!(
-                    "KakaoTalk repair exited with code {}",
-                    status.exitcode
+                    "KakaoTalk repair exited with code {}; stderr={}; stdout={}",
+                    status.exitcode, status.stderr, status.stdout
                 ))
                 .into());
             }
@@ -260,7 +260,7 @@ impl VmManager {
 }
 
 pub fn kakaotalk_repair_guest_exec_command() -> String {
-    powershell_guest_exec_command(kakaotalk_repair_powershell_command(), false)
+    powershell_guest_exec_command(kakaotalk_repair_powershell_command(), true)
 }
 
 fn powershell_guest_exec_command(command: &str, capture_output: bool) -> String {
@@ -284,16 +284,38 @@ fn powershell_guest_exec_command(command: &str, capture_output: bool) -> String 
 }
 
 fn kakaotalk_repair_powershell_command() -> &'static str {
-    "$script = 'C:\\winbridge\\position-kakaotalk.ps1'; \
-if (-not (Test-Path $script)) { throw 'position-kakaotalk.ps1 not found.' }; \
-$content = Get-Content -Path $script -Raw -ErrorAction Stop; \
-if ($content -match '\\[switch\\]\\$Restart') { \
-    & $script -Restart; \
-} else { \
-    Get-Process -Name 'KakaoTalk' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; \
-    Start-Sleep -Milliseconds 500; \
-    & $script; \
-}"
+    r#"$ErrorActionPreference = 'Stop'
+$script = 'C:\winbridge\position-kakaotalk.ps1'
+if (-not (Test-Path $script)) { throw 'position-kakaotalk.ps1 not found.' }
+$repairScript = 'C:\winbridge\repair-kakaotalk-interactive.ps1'
+$repairContent = @'
+$ErrorActionPreference = 'Stop'
+$script = 'C:\winbridge\position-kakaotalk.ps1'
+if (-not (Test-Path $script)) { throw 'position-kakaotalk.ps1 not found.' }
+$content = Get-Content -Path $script -Raw -ErrorAction Stop
+if ($content -match '\[switch\]\$Restart') {
+    & $script -Restart
+} else {
+    Get-Process -Name 'KakaoTalk' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 500
+    & $script
+}
+'@
+Set-Content -Path $repairScript -Value $repairContent -Encoding UTF8
+$taskName = 'RepairKakaoTalk'
+$taskPath = '\Winbridge\'
+$argument = '-ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File "' + $repairScript + '"'
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argument
+$principal = New-ScheduledTaskPrincipal -UserId 'Administrator' -LogonType Interactive -RunLevel Highest
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 2)
+Register-ScheduledTask -TaskPath $taskPath -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
+Start-ScheduledTask -TaskPath $taskPath -TaskName $taskName
+Start-Sleep -Seconds 2
+$info = Get-ScheduledTaskInfo -TaskPath $taskPath -TaskName $taskName
+$task = Get-ScheduledTask -TaskPath $taskPath -TaskName $taskName
+$result = [int]$info.LastTaskResult
+if ($result -ne 0 -and $result -ne 267009) { throw "KakaoTalk interactive repair task result=$result state=$($task.State)" }
+Write-Host "KakaoTalk interactive repair task triggered: state=$($task.State), result=$result""#
 }
 
 fn guest_diagnostics_powershell_command() -> &'static str {
@@ -570,7 +592,12 @@ mod tests {
 
         assert!(command.contains("guest-exec"));
         assert!(command.contains("powershell.exe"));
+        assert!(command.contains("\"capture-output\":true"));
         assert!(command.contains("C:\\\\winbridge\\\\position-kakaotalk.ps1"));
+        assert!(command.contains("repair-kakaotalk-interactive.ps1"));
+        assert!(command.contains("Register-ScheduledTask"));
+        assert!(command.contains("Start-ScheduledTask"));
+        assert!(command.contains("LogonType Interactive"));
         assert!(command.contains("-Restart"));
         assert!(command.contains("Stop-Process"));
     }

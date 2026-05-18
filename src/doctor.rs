@@ -146,7 +146,7 @@ pub async fn diagnose_host() -> DoctorReport {
     };
 
     let manager = VmManager::new(backend, cfg.vm_name.clone());
-    match manager.state().await {
+    let vm_state = match manager.state().await {
         Ok(state) => {
             let status = if state.is_active() {
                 DoctorStatus::Ok
@@ -158,6 +158,7 @@ pub async fn diagnose_host() -> DoctorReport {
                 "vm state",
                 format!("{} is {:?}", cfg.vm_name, state),
             ));
+            state
         }
         Err(err) => {
             report.push(
@@ -172,33 +173,44 @@ pub async fn diagnose_host() -> DoctorReport {
             add_guest_manual_check(&mut report);
             return report;
         }
-    }
+    };
 
     let mut guest_checks_complete = false;
-    match manager.qemu_guest_ping().await {
-        Ok(()) => {
-            report.push(DoctorCheck::new(
-                DoctorStatus::Ok,
+    if !vm_state.is_active() {
+        report.push(
+            DoctorCheck::new(
+                DoctorStatus::Skip,
                 "qemu guest agent",
-                "guest-ping succeeded",
-            ));
-            match manager.guest_diagnostics().await {
-                Ok(diagnostics) => {
-                    add_guest_diagnostic_checks(&mut report, &diagnostics);
-                    guest_checks_complete = true;
+                "VM is not active; guest service-session checks skipped",
+            )
+            .with_next_action("start or resume the VM before running guest diagnostics"),
+        );
+    } else {
+        match manager.qemu_guest_ping().await {
+            Ok(()) => {
+                report.push(DoctorCheck::new(
+                    DoctorStatus::Ok,
+                    "qemu guest agent",
+                    "guest-ping succeeded; guest checks run in the qemu-ga service session",
+                ));
+                match manager.guest_diagnostics().await {
+                    Ok(diagnostics) => {
+                        add_guest_diagnostic_checks(&mut report, &diagnostics);
+                        guest_checks_complete = true;
+                    }
+                    Err(err) => report.push(
+                        DoctorCheck::new(DoctorStatus::Warn, "guest checks", err.to_string())
+                            .with_next_action(
+                                "run scripts/windows/diagnose-winbridge.ps1 inside Windows",
+                            ),
+                    ),
                 }
-                Err(err) => report.push(
-                    DoctorCheck::new(DoctorStatus::Warn, "guest checks", err.to_string())
-                        .with_next_action(
-                            "run scripts/windows/diagnose-winbridge.ps1 inside Windows",
-                        ),
-                ),
             }
+            Err(err) => report.push(
+                DoctorCheck::new(DoctorStatus::Warn, "qemu guest agent", err.to_string())
+                    .with_next_action("install virtio-win guest tools and restart the VM"),
+            ),
         }
-        Err(err) => report.push(
-            DoctorCheck::new(DoctorStatus::Warn, "qemu guest agent", err.to_string())
-                .with_next_action("install virtio-win guest tools and restart the VM"),
-        ),
     }
 
     match check_tcp_port(&cfg.vm_ip, RDP_PORT).await {
@@ -274,7 +286,7 @@ fn add_guest_manual_check(report: &mut DoctorReport) {
         DoctorCheck::new(
             DoctorStatus::Warn,
             "guest checks",
-            "run scripts/windows/diagnose-winbridge.ps1 inside Windows for KakaoTalk and wallpaper checks",
+            "visible RDP user checks require running scripts/windows/diagnose-winbridge.ps1 inside Windows",
         )
         .with_next_action("wallpaper: C:\\winbridge\\repair-wallpaper.ps1; KakaoTalk: C:\\winbridge\\position-kakaotalk.ps1 -Restart"),
     );
@@ -294,35 +306,37 @@ fn add_wallpaper_check(report: &mut DoctorReport, diagnostics: &GuestDiagnostics
         report.push(
             DoctorCheck::new(
                 DoctorStatus::Warn,
-                "guest wallpaper",
-                "no wallpaper path configured",
+                "guest service-session wallpaper",
+                "no wallpaper path configured in qemu-ga service session; visible RDP wallpaper may differ",
             )
-            .with_next_action("set a wallpaper from a stable local Windows path"),
+            .with_next_action("if visible RDP wallpaper is broken, run winbridge repair-wallpaper"),
         );
     } else if wallpaper.source_reachable {
         report.push(DoctorCheck::new(
             DoctorStatus::Ok,
-            "guest wallpaper",
-            format!("source reachable: {path}"),
+            "guest service-session wallpaper",
+            format!("source reachable in qemu-ga service session: {path}"),
         ));
     } else if wallpaper.theme_cache_reachable {
         report.push(
             DoctorCheck::new(
                 DoctorStatus::Warn,
-                "guest wallpaper",
+                "guest service-session wallpaper",
                 format!(
-                    "source missing but theme cache exists ({} bytes): {path}",
+                    "source missing in qemu-ga service session but theme cache exists ({} bytes): {path}",
                     wallpaper.theme_cache_bytes
                 ),
             )
-            .with_next_action("run winbridge repair-wallpaper"),
+            .with_next_action("if visible RDP wallpaper is broken, run winbridge repair-wallpaper"),
         );
     } else {
         report.push(
             DoctorCheck::new(
                 DoctorStatus::Fail,
-                "guest wallpaper",
-                format!("source missing and theme cache unavailable: {path}"),
+                "guest service-session wallpaper",
+                format!(
+                    "source missing and theme cache unavailable in qemu-ga service session: {path}"
+                ),
             )
             .with_next_action("run winbridge repair-wallpaper or set the wallpaper again manually"),
         );
@@ -334,22 +348,32 @@ fn add_kakaotalk_check(report: &mut DoctorReport, diagnostics: &GuestDiagnostics
     if kakao.has_main_window {
         report.push(DoctorCheck::new(
             DoctorStatus::Ok,
-            "guest kakaotalk",
-            format!("{} process(es), main window visible", kakao.process_count),
+            "guest service-session kakaotalk",
+            format!(
+                "{} process(es), main window visible to qemu-ga service session",
+                kakao.process_count
+            ),
         ));
     } else if kakao.process_count > 0 {
         report.push(
             DoctorCheck::new(
                 DoctorStatus::Warn,
-                "guest kakaotalk",
-                format!("{} process(es), no main window", kakao.process_count),
+                "guest service-session kakaotalk",
+                format!(
+                    "{} process(es), no main window visible to qemu-ga service session",
+                    kakao.process_count
+                ),
             )
-            .with_next_action("run winbridge repair-kakao"),
+            .with_next_action("if tray Open KakaoTalk does not show the visible window, run winbridge repair-kakao"),
         );
     } else {
         report.push(
-            DoctorCheck::new(DoctorStatus::Fail, "guest kakaotalk", "process not running")
-                .with_next_action("start KakaoTalk inside Windows or run winbridge repair-kakao"),
+            DoctorCheck::new(
+                DoctorStatus::Warn,
+                "guest service-session kakaotalk",
+                "process not visible to qemu-ga service session",
+            )
+            .with_next_action("open KakaoTalk from tray first; if the visible window is broken, run winbridge repair-kakao"),
         );
     }
 }
@@ -359,14 +383,14 @@ fn add_themes_check(report: &mut DoctorReport, diagnostics: &GuestDiagnostics) {
     if status.eq_ignore_ascii_case("Running") {
         report.push(DoctorCheck::new(
             DoctorStatus::Ok,
-            "guest themes service",
+            "guest service-session themes",
             "Themes service running",
         ));
     } else {
         report.push(
             DoctorCheck::new(
                 DoctorStatus::Warn,
-                "guest themes service",
+                "guest service-session themes",
                 format!("Themes service is {status}"),
             )
             .with_next_action("start the Windows Themes service"),
@@ -379,14 +403,14 @@ fn add_disk_check(report: &mut DoctorReport, diagnostics: &GuestDiagnostics) {
     if free_gb >= 5.0 {
         report.push(DoctorCheck::new(
             DoctorStatus::Ok,
-            "guest disk",
+            "guest service-session disk",
             format!("C: free space {free_gb:.1} GiB"),
         ));
     } else {
         report.push(
             DoctorCheck::new(
                 DoctorStatus::Warn,
-                "guest disk",
+                "guest service-session disk",
                 format!("C: low free space {free_gb:.1} GiB"),
             )
             .with_next_action("free Windows disk space before updates or VM snapshots"),
@@ -452,9 +476,9 @@ mod tests {
         add_guest_diagnostic_checks(&mut report, &diagnostics);
 
         let checks = report.checks();
-        assert_eq!(checks[0].name, "guest wallpaper");
+        assert_eq!(checks[0].name, "guest service-session wallpaper");
         assert_eq!(checks[0].status, DoctorStatus::Warn);
-        assert!(checks[0].detail.contains("source missing"));
+        assert!(checks[0].detail.contains("qemu-ga service session"));
         assert_eq!(checks[1].status, DoctorStatus::Ok);
         assert_eq!(checks[2].status, DoctorStatus::Ok);
         assert_eq!(checks[3].status, DoctorStatus::Ok);
@@ -483,10 +507,48 @@ mod tests {
         add_guest_diagnostic_checks(&mut report, &diagnostics);
 
         let checks = report.checks();
-        assert_eq!(checks[1].name, "guest kakaotalk");
+        assert_eq!(checks[1].name, "guest service-session kakaotalk");
         assert_eq!(checks[1].status, DoctorStatus::Warn);
-        assert!(checks[1].detail.contains("no main window"));
+        assert!(checks[1].detail.contains("qemu-ga service session"));
+        assert!(checks[1]
+            .next_action
+            .as_ref()
+            .unwrap()
+            .contains("tray Open KakaoTalk"));
         assert_eq!(checks[2].status, DoctorStatus::Warn);
         assert_eq!(checks[3].status, DoctorStatus::Warn);
+    }
+
+    #[test]
+    fn guest_diagnostics_does_not_fail_when_service_session_cannot_see_kakaotalk() {
+        let mut report = DoctorReport::default();
+        let diagnostics = GuestDiagnostics {
+            wallpaper: GuestWallpaperDiagnostics {
+                path: "C:\\winbridge\\wallpaper.jpg".to_string(),
+                source_reachable: true,
+                theme_cache_reachable: true,
+                theme_cache_bytes: 100,
+            },
+            themes: GuestServiceDiagnostics {
+                status: "Running".to_string(),
+            },
+            kakaotalk: GuestKakaoTalkDiagnostics {
+                process_count: 0,
+                has_main_window: false,
+            },
+            disk: GuestDiskDiagnostics { free_gb: 12.0 },
+        };
+
+        add_guest_diagnostic_checks(&mut report, &diagnostics);
+
+        let checks = report.checks();
+        assert_eq!(checks[1].name, "guest service-session kakaotalk");
+        assert_eq!(checks[1].status, DoctorStatus::Warn);
+        assert!(checks[1].detail.contains("qemu-ga service session"));
+        assert!(checks[1]
+            .next_action
+            .as_ref()
+            .unwrap()
+            .contains("open KakaoTalk"));
     }
 }
