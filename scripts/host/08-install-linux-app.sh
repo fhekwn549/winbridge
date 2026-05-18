@@ -62,9 +62,15 @@ if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$HOME/.local/share/applications" >/dev/null 2>&1 || true
 fi
 
+if command -v xdg-desktop-menu >/dev/null 2>&1; then
+    xdg-desktop-menu forceupdate >/dev/null 2>&1 || true
+fi
+
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
     gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" >/dev/null 2>&1 || true
 fi
+
+touch "$HOME/.local/share/applications" "$HOME/.local/share/applications/dev.winbridge.WinbridgeApp.desktop"
 
 log_info "Linux app installed:"
 log_info "  binary: $INSTALL_BIN"

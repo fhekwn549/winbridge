@@ -35,5 +35,9 @@ grep -q 'winbridge.png' "$REPO_ROOT/scripts/host/08-install-linux-app.sh" \
     || { echo "FAIL: Linux app installer does not install the winbridge icon"; exit 1; }
 grep -q 'gtk-update-icon-cache -f -t' "$REPO_ROOT/scripts/host/08-install-linux-app.sh" \
     || { echo "FAIL: Linux app installer does not force-refresh the icon cache"; exit 1; }
+grep -q 'xdg-desktop-menu forceupdate' "$REPO_ROOT/scripts/host/08-install-linux-app.sh" \
+    || { echo "FAIL: Linux app installer does not force-refresh the desktop menu"; exit 1; }
+grep -q 'touch.*dev.winbridge.WinbridgeApp.desktop' "$REPO_ROOT/scripts/host/08-install-linux-app.sh" \
+    || { echo "FAIL: Linux app installer does not touch the desktop entry for GNOME cache refresh"; exit 1; }
 
 echo "PASS: test-linux-app-install.sh"
