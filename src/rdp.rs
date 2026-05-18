@@ -297,6 +297,7 @@ pub struct RdpWindow;
 #[derive(Clone, Debug)]
 pub struct RdpWindowOptions {
     pub title: String,
+    pub icon_name: Option<&'static str>,
     pub viewport: RdpViewport,
     pub desktop_size: RdpDesktopSize,
     pub virtual_desktop_layout: Option<RdpVirtualDesktopLayout>,
@@ -307,6 +308,7 @@ impl RdpWindowOptions {
     pub fn new(title: impl Into<String>) -> Self {
         Self {
             title: title.into(),
+            icon_name: None,
             viewport: RdpViewport::new(0, 0, 1280, 720),
             desktop_size: RdpDesktopSize::new(1280, 720),
             virtual_desktop_layout: None,
@@ -317,6 +319,7 @@ impl RdpWindowOptions {
     pub fn kakaotalk_app() -> Self {
         Self {
             title: "KakaoTalk".to_string(),
+            icon_name: Some(crate::desktop::KAKAOTALK_ICON_NAME),
             viewport: RdpViewport::new(0, 0, 960, 720),
             desktop_size: RdpDesktopSize::new(960, 720),
             virtual_desktop_layout: None,
@@ -327,6 +330,7 @@ impl RdpWindowOptions {
     pub fn experimental_multimon_desktop() -> Self {
         Self {
             title: "Windows Desktop".to_string(),
+            icon_name: None,
             viewport: RdpViewport::new(0, 0, 2560, 720),
             desktop_size: RdpDesktopSize::new(2560, 720),
             virtual_desktop_layout: Some(RdpVirtualDesktopLayout::TwoHorizontalSlots {
@@ -442,12 +446,15 @@ impl RdpWindow {
         on_close: Arc<dyn Fn() + Send + Sync>,
     ) -> WinbridgeResult<()> {
         let (window_width, window_height) = options.initial_window_size();
-        let win = gtk::ApplicationWindow::builder()
+        let mut window_builder = gtk::ApplicationWindow::builder()
             .application(app)
             .title(&options.title)
             .default_width(i32::from(window_width))
-            .default_height(i32::from(window_height))
-            .build();
+            .default_height(i32::from(window_height));
+        if let Some(icon_name) = options.icon_name {
+            window_builder = window_builder.icon_name(icon_name);
+        }
+        let win = window_builder.build();
 
         let drawing = gtk::DrawingArea::new();
         drawing.set_hexpand(true);
@@ -1567,6 +1574,7 @@ mod tests {
         let options = RdpWindowOptions::kakaotalk_app();
 
         assert_eq!(options.title, "KakaoTalk");
+        assert_eq!(options.icon_name, Some(crate::desktop::KAKAOTALK_ICON_NAME));
         assert_eq!(options.display_strategy, RdpDisplayStrategy::StableSlots);
         assert_eq!(options.virtual_desktop_layout, None);
         assert_eq!(options.initial_desktop_size(), (960, 720));
